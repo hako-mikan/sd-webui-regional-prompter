@@ -12,8 +12,8 @@
 Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here](https://note.com/gcem156/n/nb3d516e376d7) for details.
 
 ## Usage
-This section explains how to use the following image, explaining how to create the following image.
-![sample](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample.jpg)
+This section explains how to use the following image, explaining how to create the following image.  
+![sample](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample.jpg)  
 Here is the prompt.
 ```
 green hair twintail BREAK
@@ -55,8 +55,8 @@ Specifies the direction of division. Horizontal and vertical directions can be s
 Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。
 
 ## 使い方
-次の画像の作り方を解説しつつ、使い方を説明します。
-![sample](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample.jpg)
+次の画像の作り方を解説しつつ、使い方を説明します。  
+![sample](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample.jpg)  
 以下がプロンプトです。
 ```
 green hair twintail BREAK
@@ -81,7 +81,7 @@ Base Ratio :
 
 ### Use base prompt
 ベースプロンプトとはすべての領域に共通のプロンプトを使用したい場合チェックを入れます。領域で一貫した場面にしたい場合などは使ってください。
-ベースプロンプトを使用する場合、BREAK区切られた最初のプロンプトがベースとして扱われます。有効時にはBREAKで区切られたプロンプトがDivide Ratioより一つ多く必要になります。
+ベースプロンプトを使用する場合、BREAK区切られた最初のプロンプトがベースとして扱われます。
 
 ### Base ratio
 ベースプロンプトの比率を設定します。0.2と入力された場合、ベースの割合が0.2になります。領域ごとにも指定可能で、0.2,0.3,0.5などと入力できます。単一の値を入力した場合はすべての領域に同じ値が適応されます。
