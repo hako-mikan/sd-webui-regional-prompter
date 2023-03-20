@@ -17,6 +17,10 @@ class Script(modules.scripts.Script):
         self.bratios = []
         self.handle = None
         self.count = 0
+        self.hr = False
+        self.hr_scale = 0
+        self.hr_w = 0
+        self.hr_h = 0
 
     def title(self):
         return "Regional Prompter"
@@ -46,6 +50,9 @@ class Script(modules.scripts.Script):
             self.h = p.height
             self.debug = debug
             self.usebase = usebase
+            self.hr = p.enable_hr
+            self.hr_w = p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale
+            self.hr_h = p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale
             breaks,nbreaks = p.prompt.count("BREAK"), p.negative_prompt.count("BREAK")
             if breaks > 0:
                 np = p.negative_prompt.split("BREAK")
@@ -57,6 +64,10 @@ class Script(modules.scripts.Script):
                         np.append(np[0])
                 elif breaks < nbreaks:
                         np = np[0:breaks+1]
+                for i ,n in enumerate(np):
+                    if n.isspace() or n =="":
+                        np[i] = ","
+                        ok = False
                 if not ok : 
                     p.negative_prompt = " BREAK ".join(np)
                     p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
@@ -90,6 +101,16 @@ def hook_forward(self,module):
         if self.debug : print("input",x.size())
         if self.debug : print(context.size())
         if self.debug : pprint(module.lora_layer_name)
+
+        height = self.h
+        width =self.w
+
+        def hr_cheker(n):
+            return (n != 0) and (n & (n-1) == 0)
+
+        if not hr_cheker(height*width//x.size()[1]) and self.hr:
+            height = self.hr_h
+            width = self.hr_w
 
         sumer = 0
         h_states= []
@@ -128,11 +149,10 @@ def hook_forward(self,module):
             out = module.to_out(out)
 
             xs = x.size()[1]
-            scale = round(math.sqrt(self.w*self.h/xs))
-            
+            scale = round(math.sqrt(height*width/xs))
 
-            dsh = round(self.h/scale)
-            dsw = round(self.w/scale)
+            dsh = round(height/scale)
+            dsw = round(width/scale)
             ha,wa = xs%dsh,xs%dsw
             if ha ==0:
                 dsw = int(xs /dsh) 
