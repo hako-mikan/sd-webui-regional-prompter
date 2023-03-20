@@ -35,7 +35,7 @@ If checked, this extention is enabled.
 
 ### Prompt
 Prompts for different areas are separated by "BREAK". Enter prompts from the left for horizontal prompts and from the top for vertical prompts.
-Negative prompts can also be set for each area by separating them with BREAK, but if BREAK is not entered, the same negative prompt will be set for all areas.
+Negative prompts can also be set for each area by separating them with BREAK, but if BREAK is not entered, the same negative prompt will be set for all areas.  Prompts delimited by BREAK should not exceed 75 tokens. If the number is exceeded, it will be treated as a separate area and will not work properly.
 
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
@@ -78,7 +78,7 @@ Base Ratio :
 ### Prompt
 領域別のプロンプト同士はBREAKで区切ります。水平の場合は左から、垂直の場合は上から順にプロンプトを入力します。
 ネガティブプロンプトもBREAKで区切ることで領域ごとに設定できますが、BREAKを入力しない場合すべての領域に同一のネガティブプロンプトが設定されます。
-
+BREAKで区切られたプロンプトは75トークン以内に収めてくだい。これを超えると別領域扱いになって正常に動作しません。
 ### Use base prompt
 ベースプロンプトとはすべての領域に共通のプロンプトを使用したい場合チェックを入れます。領域で一貫した場面にしたい場合などは使ってください。
 ベースプロンプトを使用する場合、BREAK区切られた最初のプロンプトがベースとして扱われます。
