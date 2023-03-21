@@ -4,12 +4,20 @@
 - Different prompts can be specified for different regions
 
 - [AUTOMATIC1111's stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui) 用のスクリプトです
-- 垂直/平衡方向に分割された領域ごとに異なるプロンプトを指定できます
+- 垂直/平行方向に分割された領域ごとに異なるプロンプトを指定できます
+
+## update/更新情報
+- 75トークン以上を入力できるようになりました
+- 共通プロンプトを設定できるようになりました
+- 設定がPNG infoに保存されるようになりました
+- support over 75 tokens
+- common prompts can be set
+- setting parameters saved in PNG info
 
 日本語解説は[後半](概要)です。
 
 # Overview
-Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here](https://note.com/gcem156/n/nb3d516e376d7) for details.
+Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here](https://note.com/gcem156/n/nb3d516e376d7) for details.Thanks to furusu for initiating the idea.
 
 ## Usage
 This section explains how to use the following image, explaining how to create the following image.  
@@ -35,7 +43,7 @@ If checked, this extention is enabled.
 
 ### Prompt
 Prompts for different areas are separated by "BREAK". Enter prompts from the left for horizontal prompts and from the top for vertical prompts.
-Negative prompts can also be set for each area by separating them with BREAK, but if BREAK is not entered, the same negative prompt will be set for all areas.  Prompts delimited by BREAK should not exceed 75 tokens. If the number is exceeded, it will be treated as a separate area and will not work properly.
+Negative prompts can also be set for each area by separating them with BREAK, but if BREAK is not entered, the same negative prompt will be set for all areas.
 
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
@@ -51,8 +59,24 @@ If you enter 1,1,1, the area will be divided into three parts (33,3%, 33,3%, 33,
 ### Divide mode
 Specifies the direction of division. Horizontal and vertical directions can be specified.
 
+### Use common prompt
+If this option enabled, first part of the prompt is added to all part.
+```
+best quality, 20yo lady in garden BREAK
+green hair twintail BREAK
+red blouse BREAK
+blue skirt
+```
+If enabled, this prompt is treated as following,
+```
+best quality, 20yo lady in garden, green hair twintail BREAK
+best quality, 20yo lady in garden, red blouse BREAK
+best quality, 20yo lady in garden, blue skirt
+```
+So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
+
 # 概要
-Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。
+Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。アイデアを発案されたfurusu様に感謝いたします。
 
 ## 使い方
 次の画像の作り方を解説しつつ、使い方を説明します。  
@@ -78,7 +102,7 @@ Base Ratio :
 ### Prompt
 領域別のプロンプト同士はBREAKで区切ります。水平の場合は左から、垂直の場合は上から順にプロンプトを入力します。
 ネガティブプロンプトもBREAKで区切ることで領域ごとに設定できますが、BREAKを入力しない場合すべての領域に同一のネガティブプロンプトが設定されます。
-BREAKで区切られたプロンプトは75トークン以内に収めてくだい。これを超えると別領域扱いになって正常に動作しません。
+
 ### Use base prompt
 ベースプロンプトとはすべての領域に共通のプロンプトを使用したい場合チェックを入れます。領域で一貫した場面にしたい場合などは使ってください。
 ベースプロンプトを使用する場合、BREAK区切られた最初のプロンプトがベースとして扱われます。
@@ -91,3 +115,19 @@ BREAKで区切られたプロンプトは75トークン以内に収めてくだ�
 
 ### Divide mode
 分割方向を指定します。水平、垂直方向が指定できます。
+
+### Use common prompt
+このオプションを有効化すると最初のプロンプトをすべてのプロンプトに加算します。
+```
+best quality, 20yo lady in garden BREAK
+green hair twintail BREAK
+red blouse BREAK
+blue skirt
+```
+このようなプロンプトがあるときに、この機能を有効化すると以下のように扱われます。
+```
+best quality, 20yo lady in garden, green hair twintail BREAK
+best quality, 20yo lady in garden, red blouse BREAK
+best quality, 20yo lady in garden, blue skirt
+```
+よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
