@@ -10,9 +10,11 @@
 - 75トークン以上を入力できるようになりました
 - 共通プロンプトを設定できるようになりました
 - 設定がPNG infoに保存されるようになりました
+- プリセット機能を追加しました
 - support over 75 tokens
 - common prompts can be set
 - setting parameters saved in PNG info
+- preset feature added
 
 日本語解説は[後半](概要)です。
 
@@ -75,6 +77,9 @@ best quality, 20yo lady in garden, blue skirt
 ```
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
+### presets
+You can save the setting to presets using preset tab. Presets file located in `web-ui-root/scripts/regional_prompter_presets.csv`. Settiing for last generations is automatically saved to presets: `lastrun`.
+
 # 概要
 Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。アイデアを発案されたfurusu様に感謝いたします。
 
@@ -131,3 +136,6 @@ best quality, 20yo lady in garden, red blouse BREAK
 best quality, 20yo lady in garden, blue skirt
 ```
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
+
+### プリセット
+設定を保存できます。`web-ui-root/scripts/regional_prompter_presets.csv`に保存されています。最後に生成した設定は自動的に`lastrun`に保存されます。
