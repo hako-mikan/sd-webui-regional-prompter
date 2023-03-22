@@ -128,10 +128,6 @@ class Script(modules.scripts.Script):
 
         return p
 
-    def process_batch(self, p,active, debug, mode, aratios, bratios, usebase, usecom, usencom,**kwargs):
-        pprint(dir(p.sd_model.model.forward))
-        pprint(dir(p))
-
     def postprocess_image(self, p,pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom):
         if active:
             if usecom:
