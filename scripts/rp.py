@@ -391,9 +391,7 @@ def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom):
             pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)}\n'
             written = False
             if name == "lastrun":
-                print(presets)
                 for i, preset in enumerate(presets):
-                    print(preset)
                     if "lastrun" in preset :
                         presets[i] = pr
                         written = True
