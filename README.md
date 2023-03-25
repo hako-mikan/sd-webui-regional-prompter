@@ -7,14 +7,19 @@
 - 垂直/平行方向に分割された領域ごとに異なるプロンプトを指定できます
 
 ## update/更新情報
+- new feature "2D-Region"
+- 新機能2D領域を追加しました
+
+Thanks to the great cooperation of [Symbiomatrix](https://github.com/Symbiomatrix), we can now specify more flexible areas.  
+[Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより柔軟な領域指定が可能になりました。
+
+## update/更新情報
 - 75トークン以上を入力できるようになりました
 - 共通プロンプトを設定できるようになりました
 - 設定がPNG infoに保存されるようになりました
-- プリセット機能を追加しました
 - support over 75 tokens
 - common prompts can be set
 - setting parameters saved in PNG info
-- preset feature added
 
 日本語解説は[後半](概要)です。
 
@@ -77,8 +82,26 @@ best quality, 20yo lady in garden, blue skirt
 ```
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
-### presets
-You can save the setting to presets using preset tab. Presets file located in `web-ui-root/scripts/regional_prompter_presets.csv`. Settiing for last generations is automatically saved to presets: `lastrun`.
+### 2D region assignment (experimental function)
+You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt.
+
+```
+(blue sky:1.2) ADDCOL
+green hair twintail ADDCOL
+(aquarium:1.3) ADDROW
+(messy desk:1.2) ADDCOL
+orange dress and sofa
+```
+
+```
+Active : On
+Use base prompt : Off
+Divide mode : Vertical（same result for both）
+Divide Ratio : 1,2,1,1;2,4,6
+Base Ratio : 
+```
+
+![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
 # 概要
 Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。アイデアを発案されたfurusu様に感謝いたします。
@@ -137,5 +160,23 @@ best quality, 20yo lady in garden, blue skirt
 ```
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
 
-### プリセット
-設定を保存できます。`web-ui-root/scripts/regional_prompter_presets.csv`に保存されています。最後に生成した設定は自動的に`lastrun`に保存されます。
+### 2次元領域指定(実験的機能)
+領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。
+
+```
+(blue sky:1.2) ADDCOL
+green hair twintail ADDCOL
+(aquarium:1.3) ADDROW
+(messy desk:1.2) ADDCOL
+orange dress and sofa
+```
+
+```
+Active : On
+Use base prompt : Off
+Divide mode : Vertical（どちらを選んでも同じ結果になります）
+Divide Ratio : 1,2,1,1;2,4,6
+Base Ratio : 
+```
+
+![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
