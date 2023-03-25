@@ -10,8 +10,8 @@
 - new feature "2D-Region"
 - 新機能2D領域を追加しました
 
-Thanks to the great cooperation of [Symbiomatrix](https://github.com/Symbiomatrix), we can now specify more flexible areas.  
-[Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより柔軟な領域指定が可能になりました。
+Thanks to the great cooperation of [Symbiomatrix](https://github.com/Symbiomatrix), we can now specify [more flexible areas](#2d-region-assignment-experimental-function).  
+[Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより[柔軟な領域指定](#2次元領域指定実験的機能)が可能になりました。
 
 ## update/更新情報
 - 75トークン以上を入力できるようになりました
