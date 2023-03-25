@@ -447,15 +447,17 @@ class Script(modules.scripts.Script):
 
         return p
 
-    def postprocess_image(self, p,pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom):
-        if active:
-            if usecom:
-                p.prompt = self.orig_all_prompt[0]
-                p.all_prompts[self.imgcount] = self.orig_all_prompt[self.imgcount]  
-            if usencom:
-                p.negative_prompt = self.orig_all_negative_prompt[0]
-                p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompt[self.imgcount] 
-            self.imgcount += 1
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom):
+        if not active:
+            return p
+
+        if usecom:
+            p.prompt = self.orig_all_prompt[0]
+            p.all_prompts[self.imgcount] = self.orig_all_prompt[self.imgcount]
+        if usencom:
+            p.negative_prompt = self.orig_all_negative_prompt[0]
+            p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompt[self.imgcount]
+        self.imgcount += 1
         p.extra_generation_params["Regional Prompter"] = f"mode:{mode},divide ratio : {aratios}, Use base : {usebase}, Base ratio : {bratios}, Use common : {usecom}, Use N-common : {usencom}"
         return p
 
