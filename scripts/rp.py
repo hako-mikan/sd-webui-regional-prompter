@@ -219,6 +219,17 @@ def round_dim(x,y):
     """
     return x // y + (x % y >= y // 2)
 
+def repeat_div(x,y):
+    """Imitates dimension halving common in convolution operations.
+    
+    This is a pretty big assumption of the model,
+    but then if some model doesn't work like that it will be easy to spot.
+    """
+    while y > 0:
+        x = math.ceil(x / 2)
+        y = y - 1
+    return x
+
 def main_forward(module,x,context,mask):
     
     # Forward.
@@ -337,9 +348,12 @@ class Script(modules.scripts.Script):
             self.debug = debug
             self.usebase = usebase
 
-            self.hr = p.enable_hr
-            self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
-            self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
+
+            if hasattr(p,"enable_hr"): # Img2img doesn't have it.
+                self.hr = p.enable_hr
+                self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
+                self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
+
             # SBM In matrix mode, the ratios are broken up 
             if self.mode == MATMODE:
                 # The addrow/addcol syntax is better, cannot detect regular breaks without it.
@@ -485,12 +499,22 @@ def hook_forward(self, module):
             add = 0 # TEMP
             # Completely independent size calc.
             # Basically: sqrt(hw_ratio*x.size[1])
-            # And I think shape is better than size()?  
-            xs = x.size()[1]
-            scale = round(math.sqrt(height*width/xs))
 
-            dsh = round_dim(height, scale)
-            dsw = round_dim(width, scale)
+            # And I think shape is better than size()?
+            # My guesstimate is that the the formula is a repeated ceil(d/2),
+            # there doesn't seem to be a function to calculate this directly,
+            # but we can either brute force it with distance, 
+            # or assume the model ONLY transforms by x2 at a time.
+            # Repeated ceils may cause the value to veer too greatly from rounding. 
+            xs = x.size()[1]
+            # scale = round(math.sqrt(height*width/xs))
+            scale = math.ceil(math.log2(math.sqrt(height * width / xs))) # SBM Assumed halving transpose.
+            
+            # dsh = round_dim(height, scale)
+            # dsw = round_dim(width, scale)
+            dsh = repeat_div(height,scale)
+            dsw = repeat_div(width,scale)
+
             
             if self.debug : print(scale,dsh,dsw,dsh*dsw,x.size()[1])
             
