@@ -348,10 +348,12 @@ class Script(modules.scripts.Script):
             self.debug = debug
             self.usebase = usebase
 
+
             if hasattr(p,"enable_hr"): # Img2img doesn't have it.
                 self.hr = p.enable_hr
                 self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
                 self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
+
             # SBM In matrix mode, the ratios are broken up 
             if self.mode == MATMODE:
                 # The addrow/addcol syntax is better, cannot detect regular breaks without it.
@@ -497,6 +499,7 @@ def hook_forward(self, module):
             add = 0 # TEMP
             # Completely independent size calc.
             # Basically: sqrt(hw_ratio*x.size[1])
+
             # And I think shape is better than size()?
             # My guesstimate is that the the formula is a repeated ceil(d/2),
             # there doesn't seem to be a function to calculate this directly,
@@ -511,6 +514,7 @@ def hook_forward(self, module):
             # dsw = round_dim(width, scale)
             dsh = repeat_div(height,scale)
             dsw = repeat_div(width,scale)
+
             
             if self.debug : print(scale,dsh,dsw,dsh*dsw,x.size()[1])
             
