@@ -29,6 +29,8 @@ SBM mod: Two dimensional regions (of variable size, NOT a matrix).
   This can be done technically by duping the prompt for row sections,
   but a better solution is to use horz/vert as rows first / cols first.
 """
+def lange(l):
+    return range(len(l))
 
 PRESETS =[
     ["Vertical-3", "Vertical",'"1,1,1"',"","False","False","False"],
@@ -40,6 +42,7 @@ PRESETS =[
 KEYROW = "ADDROW"
 KEYCOL = "ADDCOL"
 KEYBASE = "ADDBASE"
+KEYCOMM = "ADDCOMM"
 KEYBRK = "BREAK"
 DELIMROW = ";"
 DELIMCOL = ","
@@ -230,11 +233,10 @@ def repeat_div(x,y):
         y = y - 1
     return x
 
-def main_forward(module,x,context,mask):
+def main_forward(module,x,context,mask,divide):
     
     # Forward.
-    h = module.heads
-
+    h = module.heads // divide
     q = module.to_q(x)
     context = atm.default(context, x)
     k = module.to_k(context)
@@ -257,6 +259,14 @@ def main_forward(module,x,context,mask):
     out = module.to_out(out)
     
     return out
+
+def isfloat(t):
+    try:
+        float(t)
+        return True
+    except:
+        return False
+
 class Script(modules.scripts.Script):
     def __init__(self):
         self.mode = ""
@@ -278,6 +288,7 @@ class Script(modules.scripts.Script):
         self.all_prompts = []
         self.all_negative_prompts = []
         self.imgcount = 0
+        self.filters = []
 
     def title(self):
         return "Regional Prompter"
@@ -298,6 +309,8 @@ class Script(modules.scripts.Script):
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
             with gr.Row():
                 mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical"], value="Horizontal",  type="value", interactive=True)
+            with gr.Row(visible = False):
+                calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
             with gr.Row(visible=True):
                 ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
                 baseratios = gr.Textbox(label="Base Ratio", lines=1,value="0.2",interactive=True,  elem_id="RP_base_ratio", visible=True)
@@ -338,6 +351,7 @@ class Script(modules.scripts.Script):
             savepresets("lastrun",mode, aratios, usebase, bratios, usecom, usencom)
             self.__init__()
             self.mode = mode
+            comprompt = comnegprompt = None
             # SBM matrix mode detection.
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.mode = MATMODE
@@ -348,6 +362,8 @@ class Script(modules.scripts.Script):
             self.debug = debug
             self.usebase = usebase
 
+            self.orig_all_prompts = p.all_prompts
+            self.orig_all_negative_prompts = p.all_negative_prompts 
 
             if hasattr(p,"enable_hr"): # Img2img doesn't have it.
                 self.hr = p.enable_hr
@@ -356,6 +372,19 @@ class Script(modules.scripts.Script):
 
             # SBM In matrix mode, the ratios are broken up 
             if self.mode == MATMODE:
+                if usecom and KEYCOMM in p.prompt:
+                    comprompt = p.prompt.split(KEYCOMM,1)[0]
+                    p.prompt = p.prompt.split(KEYCOMM,1)[1]
+                elif usecom and KEYBRK in p.prompt:
+                    comprompt = p.prompt.split(KEYBRK,1)[0]
+                    p.prompt = p.prompt.split(KEYBRK,1)[1]
+                if usencom and KEYCOMM in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
+                elif usencom and KEYBRK in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
+                print(p.prompt)
                 # The addrow/addcol syntax is better, cannot detect regular breaks without it.
                 # In any case, the preferred method will anchor the L2 structure. 
                 if (KEYBASE in p.prompt.upper()): # Designated base.
@@ -428,37 +457,40 @@ class Script(modules.scripts.Script):
                 for i ,n in enumerate(np):
                     if n.isspace() or n =="":
                         np[i] = ","
-                p.negative_prompt = fspace(KEYBRK).join(np)
-                p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-                self.handle = hook_forwards(self,p.sd_model.model.diffusion_model)
+                # p.negative_prompt = fspace(KEYBRK).join(np)
+                # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
+                if comprompt is not None : 
+                    p.prompt = comprompt +" " +  KEYBRK + " " + p.prompt
+                    for i in lange(p.all_prompts):
+                        p.all_prompts[i] = comprompt +" " +  KEYBRK + " " + p.all_prompts[i]
+                if comnegprompt is not None :
+                    p.negative_prompt = comnegprompt + KEYBRK + p.negative_prompt
+                    for i in lange(p.all_negative_prompts):
+                        p.all_negative_prompts[i] = comnegprompt +" " +  KEYBRK + " " + p.all_negative_prompts[i]
+                self, p = commondealer(self, p, usecom, usencom)
             else:
                 self, p = promptdealer(self, p, aratios, bratios, usebase, usecom, usencom)
+                self, p = commondealer(self, p, usecom, usencom)
     
-                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-    
-                self.pt, self.nt ,ppt,pnt= tokendealer(p)
-    
-                print(f"pos tokens : {ppt}, neg tokens : {pnt}")
-                
-                self.eq = True if len(self.pt) == len(self.nt) else False
+            self.pt, self.nt ,ppt,pnt, self.eq = tokendealer(p)
+            #self.eq = True if len(self.pt) == len(self.nt) else False
+            self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+            print(f"pos tokens : {ppt}, neg tokens : {pnt}")
         else:   
             if hasattr(self,"handle"):
                 hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
                 del self.handle
-
-
         return p
 
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom):
         if not active:
             return p
-
-        if usecom:
-            p.prompt = self.orig_all_prompt[0]
-            p.all_prompts[self.imgcount] = self.orig_all_prompt[self.imgcount]
+        if usecom or self.mode == MATMODE:
+            p.prompt = self.orig_all_prompts[0]
+            p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
         if usencom:
-            p.negative_prompt = self.orig_all_negative_prompt[0]
-            p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompt[self.imgcount]
+            p.negative_prompt = self.orig_all_negative_prompts[0]
+            p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
         self.imgcount += 1
         p.extra_generation_params["Regional Prompter"] = f"mode:{mode},divide ratio : {aratios}, Use base : {usebase}, Base ratio : {bratios}, Use common : {usecom}, Use N-common : {usencom}"
         return p
@@ -494,8 +526,8 @@ def hook_forward(self, module):
         sumer = 0
         h_states = []
         contexts = context.clone()
-        # SBM Matrix mode.
-        if MATMODE in self.mode:
+            # SBM Matrix mode.
+        def matsepcalc(x,contexts,mask,pn,divide):
             add = 0 # TEMP
             # Completely independent size calc.
             # Basically: sqrt(hw_ratio*x.size[1])
@@ -515,7 +547,8 @@ def hook_forward(self, module):
             dsh = repeat_div(height,scale)
             dsw = repeat_div(width,scale)
 
-            
+            tll = self.pt if pn else self.nt
+
             if self.debug : print(scale,dsh,dsw,dsh*dsw,x.size()[1])
             
             # Base forward.
@@ -523,27 +556,40 @@ def hook_forward(self, module):
             i = 0
             outb = None
             if self.usebase:
-                context = contexts[:,i * TOKENS:(i + 1 + self.basebreak) * TOKENS,:]
+                context = contexts[:,tll[i][0] * TOKENS:tll[i][1] * TOKENS,:]
                 i = i + 1 + self.basebreak
-                out = main_forward(module, x, context, mask)
-                
+                out = main_forward(module, x, context, mask, divide)
+
+                if len(self.nt) == 1 and not pn:
+                    if self.debug : print("return out for NP")
+                    return out
                 # if self.usebase:
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
             
             indlast = False
             sumh = 0
+
+
+            if self.debug : print(f"tokens : {tll},pn : {pn}")
+
+            if self.debug : print([r for r in self.aratios])
+
             for drow in self.aratios:
                 v_states = []
                 sumw = 0
                 for dcell in drow.cols:
                     # Grabs a set of tokens depending on number of unrelated breaks.
-                    context = contexts[:,i * TOKENS:(i + 1 + dcell.breaks) * TOKENS,:]
+                    context = contexts[:,tll[i][0] * TOKENS:tll[i][1] * TOKENS,:]
+                    if self.debug : print(f"tokens : {tll[i][0]*TOKENS}-{tll[i][1]*TOKENS}")
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
-                    out = main_forward(module, x, context, mask)
-                    
+                    out = main_forward(module, x, context, mask, divide)
+                    if self.debug : print(f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
+                    if len(self.nt) == 1 and not pn:
+                        if self.debug : print("return out for NP")
+                        return out
                     # Actual matrix split by region.
                     
                     out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape. 
@@ -558,12 +604,12 @@ def hook_forward(self, module):
                             addh = sumh - dsh
                     
                     out = out[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                              int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:]
+                                int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:]
                     if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
                     if self.usebase : 
                         # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
                         outb_t = outb[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                                      int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:].clone()
+                                        int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:].clone()
                         out = out * (1 - dcell.base) + outb_t * dcell.base
             
                     v_states.append(out)
@@ -575,124 +621,114 @@ def hook_forward(self, module):
                 h_states.append(ox)
             ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
             ox = ox.reshape(x.size()[0],x.size()[1],x.size()[2]) # Restore to 3d source.  
-        else: # Regular handle.
-            def separatecalc(x, contexts, mask, pn,divide):
-                sumer = 0
-                h_states = []
-    
-                tll = self.pt if pn else self.nt
-                if self.debug : print(f"tokens : {tll},pn : {pn}")
-    
-                for i, tl in enumerate(tll):
-                    context = contexts[:, tl[0] * 77 : tl[1] * 77, :]
-                    if self.debug : print(f"tokens : {tl[0]*77}-{tl[1]*77}")
-    
-                    if self.usebase:
-                        if i != 0:
-                            area = self.aratios[i - 1]
-                            bweight = self.bratios[i - 1]
-                    else:
-                        area = self.aratios[i]
-    
-                    h = module.heads // divide
-                    q = module.to_q(x)
-    
-                    context = atm.default(context, x)
-                    k = module.to_k(context)
-                    v = module.to_v(context)
-    
-                    q, k, v = map(lambda t: atm.rearrange(t, "b n (h d) -> (b h) n d", h=h), (q, k, v))
-    
-                    sim = atm.einsum("b i d, b j d -> b i j", q, k) * module.scale
-    
-                    if atm.exists(mask):
-                        mask = atm.rearrange(mask, "b ... -> b (...)")
-                        max_neg_value = -torch.finfo(sim.dtype).max
-                        mask = atm.repeat(mask, "b j -> (b h) () j", h=h)
-                        sim.masked_fill_(~mask, max_neg_value)
-    
-                    attn = sim.softmax(dim=-1)
-    
-                    out = atm.einsum("b i j, b j d -> b i d", attn, v)
-                    out = atm.rearrange(out, "(b h) n d -> b n (h d)", h=h)
-                    out = module.to_out(out)
-    
-                    if len(self.nt) == 1 and not pn:
-                        if self.debug : print("return out for NP")
-                        return out
-    
-                    xs = x.size()[1]
-                    scale = round(math.sqrt(height * width / xs))
-    
-                    dsh = round(height / scale)
-                    dsw = round(width / scale)
-                    ha, wa = xs % dsh, xs % dsw
-                    if ha == 0:
-                        dsw = int(xs / dsh)
-                    elif wa == 0:
-                        dsh = int(xs / dsw)
-    
-                    if self.debug : print(scale, dsh, dsw, dsh * dsw, x.size()[1])
-    
-                    if i == 0 and self.usebase:
-                        outb = out.clone()
-                        if "Horizontal" in self.mode:
-                            outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2])
-                        continue
-                    add = 0
-    
-                    cad = 0 if self.usebase else 1
-    
+            return ox
+
+        def regsepcalc(x, contexts, mask, pn,divide):
+            sumer = 0
+            h_states = []
+
+            tll = self.pt if pn else self.nt
+            if self.debug : print(f"tokens : {tll},pn : {pn}")
+
+            for i, tl in enumerate(tll):
+                context = contexts[:, tl[0] * TOKENS : tl[1] * TOKENS, :]
+                if self.debug : print(f"tokens : {tl[0]*TOKENS}-{tl[1]*TOKENS}")
+
+                if self.usebase:
+                    if i != 0:
+                        area = self.aratios[i - 1]
+                        bweight = self.bratios[i - 1]
+                else:
+                    area = self.aratios[i]
+
+                out = main_forward(module, x, context, mask, divide)
+
+                if len(self.nt) == 1 and not pn:
+                    if self.debug : print("return out for NP")
+                    return out
+
+                xs = x.size()[1]
+                scale = round(math.sqrt(height * width / xs))
+
+                dsh = round(height / scale)
+                dsw = round(width / scale)
+                ha, wa = xs % dsh, xs % dsw
+                if ha == 0:
+                    dsw = int(xs / dsh)
+                elif wa == 0:
+                    dsh = int(xs / dsw)
+
+                if self.debug : print(scale, dsh, dsw, dsh * dsw, x.size()[1])
+
+                if i == 0 and self.usebase:
+                    outb = out.clone()
                     if "Horizontal" in self.mode:
-                        sumer = sumer + int(dsw * area[1]) - int(dsw * area[0])
-                        if i == self.divide - cad:
-                            add = sumer - dsw
-                        out = out.reshape(out.size()[0], dsh, dsw, out.size()[2])
-                        out = out[:, :, int(dsw * area[0] + add) : int(dsw * area[1]), :]
-                        if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
-                        if self.usebase:
-                            outb_t = outb[:, :, int(dsw * area[0] + add) : int(dsw * area[1]), :].clone()
-                            out = out * (1 - bweight) + outb_t * bweight
-                    elif "Vertical" in self.mode:
-                        sumer = sumer + int(dsw * dsh * area[1]) - int(dsw * dsh * area[0])
-                        if i == self.divide - cad:
-                            add = sumer - dsw * dsh
-                        out = out[:, int(dsw * dsh * area[0] + add) : int(dsw * dsh * area[1]), :]
-                        if self.debug : print(f"sumer:{sumer},dsw*dsh:{dsw*dsh},add:{add}")
-                        if self.usebase:
-                            outb_t = outb[:,int(dsw * dsh * area[0] + add) : int(dsw * dsh * area[1]),:,].clone()
-                            out = out * (1 - bweight) + outb_t * bweight
-                    h_states.append(out)
-                if self.debug:
-                    for h in h_states :
-                        print(f"divided : {h.size()}")
-    
+                        outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2])
+                    continue
+                add = 0
+
+                cad = 0 if self.usebase else 1
+
                 if "Horizontal" in self.mode:
-                    ox = torch.cat(h_states, dim=2)
-                    ox = ox.reshape(x.size()[0], x.size()[1], x.size()[2])
+                    sumer = sumer + int(dsw * area[1]) - int(dsw * area[0])
+                    if i == self.divide - cad:
+                        add = sumer - dsw
+                    out = out.reshape(out.size()[0], dsh, dsw, out.size()[2])
+                    out = out[:, :, int(dsw * area[0] + add) : int(dsw * area[1]), :]
+                    if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
+                    if self.usebase:
+                        outb_t = outb[:, :, int(dsw * area[0] + add) : int(dsw * area[1]), :].clone()
+                        out = out * (1 - bweight) + outb_t * bweight
                 elif "Vertical" in self.mode:
-                    ox = torch.cat(h_states, dim=1)
-                return ox
-    
-            if self.eq:
-                ox = separatecalc(x, contexts, mask, True, 1)
-                if self.debug : print("same token size and divisions")
-            elif x.size()[0] == 1 * self.batch_size:
-                ox = separatecalc(x, contexts, mask, self.pn, 1)
-                if self.debug : print("different tokens size")
+                    sumer = sumer + int(dsw * dsh * area[1]) - int(dsw * dsh * area[0])
+                    if i == self.divide - cad:
+                        add = sumer - dsw * dsh
+                    out = out[:, int(dsw * dsh * area[0] + add) : int(dsw * dsh * area[1]), :]
+                    if self.debug : print(f"sumer:{sumer},dsw*dsh:{dsw*dsh},add:{add}")
+                    if self.usebase:
+                        outb_t = outb[:,int(dsw * dsh * area[0] + add) : int(dsw * dsh * area[1]),:,].clone()
+                        out = out * (1 - bweight) + outb_t * bweight
+                h_states.append(out)
+            if self.debug:
+                for h in h_states :
+                    print(f"divided : {h.size()}")
+
+            if "Horizontal" in self.mode:
+                ox = torch.cat(h_states, dim=2)
+                ox = ox.reshape(x.size()[0], x.size()[1], x.size()[2])
+            elif "Vertical" in self.mode:
+                ox = torch.cat(h_states, dim=1)
+            return ox
+
+        if self.eq:
+            if self.debug : print("same token size and divisions")
+            if self.mode == MATMODE:
+                ox = matsepcalc(x, contexts, mask, True, 1)           
             else:
-                px, nx = x.chunk(2)
-                opx = separatecalc(px, contexts, mask, True, 2)
-                onx = separatecalc(nx, contexts, mask, False, 2)
-                ox = torch.cat([opx, onx])
-                if self.debug : print("same token size and different divisions")
-                
-            self.count += 1
-    
-            if self.count == 16:
-                self.pn = not self.pn
-                self.count = 0
-            if self.debug : print(f"output : {ox.size()}")
+                ox = regsepcalc(x, contexts, mask, True, 1)
+        elif x.size()[0] == 1 * self.batch_size:
+            if self.debug : print("different tokens size")
+            if self.mode == MATMODE:
+                ox = matsepcalc(x, contexts, mask, self.pn, 1)
+            else:
+                ox = regsepcalc(x, contexts, mask, self.pn, 1)
+        else:
+            if self.debug : print("same token size and different divisions")
+            px, nx = x.chunk(2)
+            if self.mode == MATMODE:
+                opx = matsepcalc(px, contexts, mask, True, 2)
+                onx = matsepcalc(nx, contexts, mask, False, 2)
+            else:
+                opx = regsepcalc(px, contexts, mask, True, 2)
+                onx = regsepcalc(nx, contexts, mask, False, 2)
+            ox = torch.cat([opx, onx])  
+
+        self.count += 1
+
+        if self.count == 16:
+            self.pn = not self.pn
+            self.count = 0
+        if self.debug : print(f"output : {ox.size()}")
         return ox
 
     return forward
@@ -707,8 +743,8 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
 
 
 def tokendealer(p):
-    ppl = p.prompt.split("BREAK")
-    npl = p.negative_prompt.split("BREAK")
+    ppl = p.prompt.split(KEYBRK)
+    npl = p.negative_prompt.split(KEYBRK)
     pt, nt, ppt, pnt = [], [], [], []
 
     padd = 0
@@ -717,15 +753,15 @@ def tokendealer(p):
         pt.append([padd, tokens // 75 + 1 + padd])
         ppt.append(tokens)
         padd = tokens // 75 + 1 + padd
-
+    paddp =padd
     padd = 0
     for np in npl:
         _, tokens = shared.sd_model.cond_stage_model.tokenize_line(np)
         nt.append([padd, tokens // 75 + 1 + padd])
         pnt.append(tokens)
         padd = tokens // 75 + 1 + padd
-
-    return pt, nt, ppt, pnt
+    eq = paddp == padd
+    return pt, nt, ppt, pnt,eq
 
 
 def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
@@ -760,33 +796,32 @@ def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
             self.bratios.append(self.bratios[0])
 
     self.divide = divide
+    return self, p
+
+def commondealer(self, p, usecom, usencom):
+    def comadder(prompt):
+        ppl = prompt.split(KEYBRK)
+        for i in range(len(ppl)):
+            if i == 0:
+                continue
+            ppl[i] = ppl[0] + ", " + ppl[i]
+        ppl = ppl[1:]
+        prompt = f"{KEYBRK} ".join(ppl)
+        return prompt
 
     if usecom:
-        self.orig_all_prompt = p.all_prompts
-        self.prompt = p.prompt = comdealer(p.prompt)
+        self.prompt = p.prompt = comadder(p.prompt)
         for pr in p.all_prompts:
-            self.all_prompts.append(comdealer(pr))
+            self.all_prompts.append(comadder(pr))
         p.all_prompts = self.all_prompts
 
     if usencom:
-        self.orig_all_negative_prompt = p.all_negative_prompts
-        self.negative_prompt = p.negative_prompt = comdealer(p.negative_prompt)
+        self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
-            self.all_negative_prompts.append(comdealer(pr))
+            self.all_negative_prompts.append(comadder(pr))
         p.all_negative_prompts =self.all_negative_prompts
-
     return self, p
 
-
-def comdealer(prompt):
-    ppl = prompt.split("BREAK")
-    for i in range(len(ppl)):
-        if i == 0:
-            continue
-        ppl[i] = ppl[0] + ", " + ppl[i]
-    ppl = ppl[1:]
-    prompt = "BREAK ".join(ppl)
-    return prompt
 
 def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom):
     path_root = scripts.basedir()
