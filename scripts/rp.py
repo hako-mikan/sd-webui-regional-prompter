@@ -25,9 +25,8 @@ SBM mod: Two dimensional regions (of variable size, NOT a matrix).
 - Base prompt overhaul: Added keyword ADDBASE, when present will trigger "use_base" automatically;
   base is excluded from the main prompt for dim calcs; returned to start before hook (+ base break count);
   during hook, context index skips base break count + 1. Rest is applied normally.
-- CONT: Currently, there is no way to specify cols first, eg 1st col:2 rows, 2nd col:1 row.
-  This can be done technically by duping the prompt for row sections,
-  but a better solution is to use horz/vert as rows first / cols first.
+- To specify cols first, use "vertical" mode. eg 1st col:2 rows, 2nd col:1 row.
+  In effect, this merely reverses the order of iteration for every row/col loop and whatnot.
 """
 def lange(l):
     return range(len(l))
@@ -46,8 +45,9 @@ KEYCOMM = "ADDCOMM"
 KEYBRK = "BREAK"
 DELIMROW = ";"
 DELIMCOL = ","
-MATMODE = "Matrix"
-TOKENS = 77
+#MATMODE = "Matrix"
+TOKENSCON = 77
+TOKENS = 75
 fidentity = lambda x: x
 fcountbrk = lambda x: x.count(KEYBRK)
 ffloat = lambda x: float(x)
@@ -71,7 +71,7 @@ class RegionRow():
         self.ed = ed
         self.cols = cols # List of cells.
 
-def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None):
+def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None, indflip = False):
     """Split string to 2d list (ie L2) per row and col keys.
     
     The output is a list of lists, each of varying length.
@@ -92,8 +92,13 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None)
     to prevent errors, the row value is copied to col if it's alone (shouldn't affect results).
     Singles still respects base broadcast rules, and repeats its own last value.
     The fmap function is applied to each cell before insertion to L2.
+    If flipped, the keyword for columns is applied before rows.
     TODO: Needs to be a case insensitive split. Use re.split.
     """
+    if indflip:
+        tmp = kr
+        kr = kc
+        kc = tmp
     lret = []
     if basestruct is None:
         lrows = s.split(kr)
@@ -120,20 +125,21 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None)
                 if (r >= len(basestruct) # Too many cell values, ignore.
                 or (len(row2) == 0 and len(basestruct) > 0)): # Cell exhausted.
                     indstop = True
-                if indsingles and not indstop: # Singles split.
-                    lsingles.append(row2[0]) # Row ratio.
-                    if len(row2) > 1:
-                        row2 = row2[1:]
-                if len(basestruct[r]) >= len(row2): # Repeat last value.
-                    indstop = True
-                    broadrow = row2 + [row2[-1]] * (len(basestruct[r]) - len(row2))
-                    r = r + 1
-                    lcells.append(broadrow)
-                else: # Overfilled this row, cut and move to next.
-                    broadrow = row2[:len(basestruct[r])]
-                    row2 = row2[len(basestruct[r]):]
-                    r = r + 1
-                    lcells.append(broadrow)
+                if not indstop:
+                    if indsingles: # Singles split.
+                        lsingles.append(row2[0]) # Row ratio.
+                        if len(row2) > 1:
+                            row2 = row2[1:]
+                    if len(basestruct[r]) >= len(row2): # Repeat last value.
+                        indstop = True
+                        broadrow = row2 + [row2[-1]] * (len(basestruct[r]) - len(row2))
+                        r = r + 1
+                        lcells.append(broadrow)
+                    else: # Overfilled this row, cut and move to next.
+                        broadrow = row2[:len(basestruct[r])]
+                        row2 = row2[len(basestruct[r]):]
+                        r = r + 1
+                        lcells.append(broadrow)
         # If not enough new rows, repeat the last one for entire base, preserving structure.
         cur = len(lcells)
         while cur < len(basestruct):
@@ -270,6 +276,7 @@ def isfloat(t):
 class Script(modules.scripts.Script):
     def __init__(self):
         self.mode = ""
+        self.indexperiment = False
         self.w = 0
         self.h = 0
         self.usebase = False
@@ -354,13 +361,19 @@ class Script(modules.scripts.Script):
             comprompt = comnegprompt = None
             # SBM matrix mode detection.
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
-                self.mode = MATMODE
+                self.indexperiment = True
             self.w = p.width
             self.h = p.height
             self.batch_size = p.batch_size
 
             self.debug = debug
             self.usebase = usebase
+            self.usecom = usecom
+            if KEYCOMM in p.prompt: # Automatic common toggle.
+                self.usecom = True
+            self.usencom = usencom
+            if KEYCOMM in p.negative_prompt: # Automatic common toggle.
+                self.usencom = True
 
             self.orig_all_prompts = p.all_prompts
             self.orig_all_negative_prompts = p.all_negative_prompts 
@@ -371,17 +384,17 @@ class Script(modules.scripts.Script):
                 self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
 
             # SBM In matrix mode, the ratios are broken up 
-            if self.mode == MATMODE:
-                if usecom and KEYCOMM in p.prompt:
+            if self.indexperiment:
+                if self.usecom and KEYCOMM in p.prompt:
                     comprompt = p.prompt.split(KEYCOMM,1)[0]
                     p.prompt = p.prompt.split(KEYCOMM,1)[1]
-                elif usecom and KEYBRK in p.prompt:
+                elif self.usecom and KEYBRK in p.prompt:
                     comprompt = p.prompt.split(KEYBRK,1)[0]
                     p.prompt = p.prompt.split(KEYBRK,1)[1]
-                if usencom and KEYCOMM in p.negative_prompt:
+                if self.usencom and KEYCOMM in p.negative_prompt:
                     comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
                     p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
-                elif usencom and KEYBRK in p.negative_prompt:
+                elif self.usencom and KEYBRK in p.negative_prompt:
                     comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
                     p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
                 print(p.prompt)
@@ -398,21 +411,22 @@ class Script(modules.scripts.Script):
                 else:
                     baseprompt = ""
                     mainprompt = p.prompt
+                indflip = (mode == "Vertical")
                 if (KEYCOL in mainprompt.upper() or KEYROW in mainprompt.upper()):
                     breaks = mainprompt.count(KEYROW) + mainprompt.count(KEYCOL) + int(self.usebase)
                     # Prompt anchors, count breaks between special keywords.
-                    lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk)
+                    lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
                     # Standard ratios, split to rows and cols.
                     (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
-                                                    indsingles = True, fmap = ffloat, basestruct = lbreaks)
+                                                    indsingles = True, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
                     # More like "bweights", applied per cell only.
                     bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks)
                 else:
                     breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloat)
+                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloat, indflip = indflip)
                     # Cannot determine which breaks matter.
-                    lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2)
-                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks)
+                    lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
+                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
                     # If insufficient breaks, try to broadcast prompt - a bit dumb.
                     breaks = fcountbrk(mainprompt)
                     lastprompt = mainprompt.rsplit(KEYBRK)[-1]
@@ -460,14 +474,14 @@ class Script(modules.scripts.Script):
                 # p.negative_prompt = fspace(KEYBRK).join(np)
                 # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
                 if comprompt is not None : 
-                    p.prompt = comprompt +" " +  KEYBRK + " " + p.prompt
+                    p.prompt = comprompt + fspace(KEYBRK) + p.prompt
                     for i in lange(p.all_prompts):
-                        p.all_prompts[i] = comprompt +" " +  KEYBRK + " " + p.all_prompts[i]
+                        p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
                 if comnegprompt is not None :
-                    p.negative_prompt = comnegprompt + KEYBRK + p.negative_prompt
+                    p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
                     for i in lange(p.all_negative_prompts):
-                        p.all_negative_prompts[i] = comnegprompt +" " +  KEYBRK + " " + p.all_negative_prompts[i]
-                self, p = commondealer(self, p, usecom, usencom)
+                        p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
+                self, p = commondealer(self, p, self.usecom, self.usencom)
             else:
                 self, p = promptdealer(self, p, aratios, bratios, usebase, usecom, usencom)
                 self, p = commondealer(self, p, usecom, usencom)
@@ -482,17 +496,18 @@ class Script(modules.scripts.Script):
                 del self.handle
         return p
 
+    # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom):
         if not active:
             return p
-        if usecom or self.mode == MATMODE:
+        if self.usecom or self.indexperiment:
             p.prompt = self.orig_all_prompts[0]
             p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
-        if usencom:
+        if self.usencom:
             p.negative_prompt = self.orig_all_negative_prompts[0]
             p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
         self.imgcount += 1
-        p.extra_generation_params["Regional Prompter"] = f"mode:{mode},divide ratio : {aratios}, Use base : {usebase}, Base ratio : {bratios}, Use common : {usecom}, Use N-common : {usencom}"
+        p.extra_generation_params["Regional Prompter"] = f"mode:{mode},divide ratio : {aratios}, Use base : {self.usebase}, Base ratio : {bratios}, Use common : {self.usecom}, Use N-common : {self.usencom}"
         return p
 
 
@@ -526,7 +541,7 @@ def hook_forward(self, module):
         sumer = 0
         h_states = []
         contexts = context.clone()
-            # SBM Matrix mode.
+        # SBM Matrix mode.
         def matsepcalc(x,contexts,mask,pn,divide):
             add = 0 # TEMP
             # Completely independent size calc.
@@ -556,7 +571,7 @@ def hook_forward(self, module):
             i = 0
             outb = None
             if self.usebase:
-                context = contexts[:,tll[i][0] * TOKENS:tll[i][1] * TOKENS,:]
+                context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
                 i = i + 1 + self.basebreak
                 out = main_forward(module, x, context, mask, divide)
 
@@ -567,8 +582,14 @@ def hook_forward(self, module):
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
             
+            if "Horizontal" in self.mode:
+                dsout = dsw
+                dsin = dsh
+            elif "Vertical" in self.mode:
+                dsout = dsh
+                dsin = dsw
             indlast = False
-            sumh = 0
+            sumout = 0
 
 
             if self.debug : print(f"tokens : {tll},pn : {pn}")
@@ -577,11 +598,11 @@ def hook_forward(self, module):
 
             for drow in self.aratios:
                 v_states = []
-                sumw = 0
+                sumin = 0
                 for dcell in drow.cols:
                     # Grabs a set of tokens depending on number of unrelated breaks.
-                    context = contexts[:,tll[i][0] * TOKENS:tll[i][1] * TOKENS,:]
-                    if self.debug : print(f"tokens : {tll[i][0]*TOKENS}-{tll[i][1]*TOKENS}")
+                    context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+                    if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
@@ -592,34 +613,48 @@ def hook_forward(self, module):
                         return out
                     # Actual matrix split by region.
                     
-                    out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape. 
-                    sumw = sumw + int(dsw*dcell.ed) - int(dsw*dcell.st)
+                    out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
+                    sumin = sumin + int(dsin*dcell.ed) - int(dsin*dcell.st)
                     # if indlast:
-                    addh = 0
-                    addw = 0
+                    addout = 0
+                    addin = 0
                     if dcell.ed >= 0.999:
-                        addw = sumw - dsw
-                        sumh = sumh + int(dsh*drow.ed) - int(dsh*drow.st)
+                        addin = sumin - dsin
+                        sumout = sumout + int(dsout*drow.ed) - int(dsout*drow.st)
                         if drow.ed >= 0.999:
-                            addh = sumh - dsh
-                    
-                    out = out[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                                int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:]
+                            addout = sumout - dsout
+                    if "Horizontal" in self.mode:
+                        out = out[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
+                                    int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:]
+                        if self.usebase : 
+                            # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
+                            outb_t = outb[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
+                                            int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:].clone()
+                            out = out * (1 - dcell.base) + outb_t * dcell.base
+                    elif "Vertical" in self.mode: # Cols are the outer list, rows are cells.
+                        out = out[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
+                                  int(dsout*drow.st) + addout:int(dsout*drow.ed),:]
+                        if self.usebase : 
+                            # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
+                            outb_t = outb[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
+                                          int(dsout*drow.st) + addout:int(dsout*drow.ed),:].clone()
+                            out = out * (1 - dcell.base) + outb_t * dcell.base
                     if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
-                    if self.usebase : 
-                        # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
-                        outb_t = outb[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                                        int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:].clone()
-                        out = out * (1 - dcell.base) + outb_t * dcell.base
             
                     v_states.append(out)
                     if self.debug : 
                         for h in v_states:
                             print(h.size())
                             
-                ox = torch.cat(v_states,dim = 2) # First concat the cells to rows.
+                if "Horizontal" in self.mode:
+                    ox = torch.cat(v_states,dim = 2) # First concat the cells to rows.
+                elif "Vertical" in self.mode:
+                    ox = torch.cat(v_states,dim = 1) # Cols first mode, concat to cols.
                 h_states.append(ox)
-            ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
+            if "Horizontal" in self.mode:
+                ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
+            elif "Vertical" in self.mode:
+                ox = torch.cat(h_states,dim = 2) # Or cols.
             ox = ox.reshape(x.size()[0],x.size()[1],x.size()[2]) # Restore to 3d source.  
             return ox
 
@@ -631,8 +666,8 @@ def hook_forward(self, module):
             if self.debug : print(f"tokens : {tll},pn : {pn}")
 
             for i, tl in enumerate(tll):
-                context = contexts[:, tl[0] * TOKENS : tl[1] * TOKENS, :]
-                if self.debug : print(f"tokens : {tl[0]*TOKENS}-{tl[1]*TOKENS}")
+                context = contexts[:, tl[0] * TOKENSCON : tl[1] * TOKENSCON, :]
+                if self.debug : print(f"tokens : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
 
                 if self.usebase:
                     if i != 0:
@@ -702,20 +737,20 @@ def hook_forward(self, module):
 
         if self.eq:
             if self.debug : print("same token size and divisions")
-            if self.mode == MATMODE:
-                ox = matsepcalc(x, contexts, mask, True, 1)           
+            if self.indexperiment:
+                ox = matsepcalc(x, contexts, mask, True, 1)
             else:
                 ox = regsepcalc(x, contexts, mask, True, 1)
         elif x.size()[0] == 1 * self.batch_size:
             if self.debug : print("different tokens size")
-            if self.mode == MATMODE:
+            if self.indexperiment:
                 ox = matsepcalc(x, contexts, mask, self.pn, 1)
             else:
                 ox = regsepcalc(x, contexts, mask, self.pn, 1)
         else:
             if self.debug : print("same token size and different divisions")
             px, nx = x.chunk(2)
-            if self.mode == MATMODE:
+            if self.indexperiment:
                 opx = matsepcalc(px, contexts, mask, True, 2)
                 onx = matsepcalc(nx, contexts, mask, False, 2)
             else:
@@ -750,18 +785,18 @@ def tokendealer(p):
     padd = 0
     for pp in ppl:
         _, tokens = shared.sd_model.cond_stage_model.tokenize_line(pp)
-        pt.append([padd, tokens // 75 + 1 + padd])
+        pt.append([padd, tokens // TOKENS + 1 + padd])
         ppt.append(tokens)
-        padd = tokens // 75 + 1 + padd
-    paddp =padd
+        padd = tokens // TOKENS + 1 + padd
+    paddp = padd
     padd = 0
     for np in npl:
         _, tokens = shared.sd_model.cond_stage_model.tokenize_line(np)
-        nt.append([padd, tokens // 75 + 1 + padd])
+        nt.append([padd, tokens // TOKENS + 1 + padd])
         pnt.append(tokens)
-        padd = tokens // 75 + 1 + padd
+        padd = tokens // TOKENS + 1 + padd
     eq = paddp == padd
-    return pt, nt, ppt, pnt,eq
+    return pt, nt, ppt, pnt, eq
 
 
 def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
@@ -819,7 +854,7 @@ def commondealer(self, p, usecom, usencom):
         self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
             self.all_negative_prompts.append(comadder(pr))
-        p.all_negative_prompts =self.all_negative_prompts
+        p.all_negative_prompts = self.all_negative_prompts
     return self, p
 
 
