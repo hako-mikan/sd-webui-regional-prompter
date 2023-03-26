@@ -25,9 +25,8 @@ SBM mod: Two dimensional regions (of variable size, NOT a matrix).
 - Base prompt overhaul: Added keyword ADDBASE, when present will trigger "use_base" automatically;
   base is excluded from the main prompt for dim calcs; returned to start before hook (+ base break count);
   during hook, context index skips base break count + 1. Rest is applied normally.
-- CONT: Currently, there is no way to specify cols first, eg 1st col:2 rows, 2nd col:1 row.
-  This can be done technically by duping the prompt for row sections,
-  but a better solution is to use horz/vert as rows first / cols first.
+- To specify cols first, use "vertical" mode. eg 1st col:2 rows, 2nd col:1 row.
+  In effect, this merely reverses the order of iteration for every row/col loop and whatnot.
 """
 
 PRESETS =[
@@ -43,7 +42,7 @@ KEYBASE = "ADDBASE"
 KEYBRK = "BREAK"
 DELIMROW = ";"
 DELIMCOL = ","
-MATMODE = "Matrix"
+#MATMODE = "Matrix"
 TOKENS = 77
 fidentity = lambda x: x
 fcountbrk = lambda x: x.count(KEYBRK)
@@ -68,7 +67,7 @@ class RegionRow():
         self.ed = ed
         self.cols = cols # List of cells.
 
-def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None):
+def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None, indflip = False):
     """Split string to 2d list (ie L2) per row and col keys.
     
     The output is a list of lists, each of varying length.
@@ -89,8 +88,13 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None)
     to prevent errors, the row value is copied to col if it's alone (shouldn't affect results).
     Singles still respects base broadcast rules, and repeats its own last value.
     The fmap function is applied to each cell before insertion to L2.
+    If flipped, the keyword for columns is applied before rows.
     TODO: Needs to be a case insensitive split. Use re.split.
     """
+    if indflip:
+        tmp = kr
+        kr = kc
+        kc = tmp
     lret = []
     if basestruct is None:
         lrows = s.split(kr)
@@ -117,20 +121,21 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None)
                 if (r >= len(basestruct) # Too many cell values, ignore.
                 or (len(row2) == 0 and len(basestruct) > 0)): # Cell exhausted.
                     indstop = True
-                if indsingles and not indstop: # Singles split.
-                    lsingles.append(row2[0]) # Row ratio.
-                    if len(row2) > 1:
-                        row2 = row2[1:]
-                if len(basestruct[r]) >= len(row2): # Repeat last value.
-                    indstop = True
-                    broadrow = row2 + [row2[-1]] * (len(basestruct[r]) - len(row2))
-                    r = r + 1
-                    lcells.append(broadrow)
-                else: # Overfilled this row, cut and move to next.
-                    broadrow = row2[:len(basestruct[r])]
-                    row2 = row2[len(basestruct[r]):]
-                    r = r + 1
-                    lcells.append(broadrow)
+                if not indstop:
+                    if indsingles: # Singles split.
+                        lsingles.append(row2[0]) # Row ratio.
+                        if len(row2) > 1:
+                            row2 = row2[1:]
+                    if len(basestruct[r]) >= len(row2): # Repeat last value.
+                        indstop = True
+                        broadrow = row2 + [row2[-1]] * (len(basestruct[r]) - len(row2))
+                        r = r + 1
+                        lcells.append(broadrow)
+                    else: # Overfilled this row, cut and move to next.
+                        broadrow = row2[:len(basestruct[r])]
+                        row2 = row2[len(basestruct[r]):]
+                        r = r + 1
+                        lcells.append(broadrow)
         # If not enough new rows, repeat the last one for entire base, preserving structure.
         cur = len(lcells)
         while cur < len(basestruct):
@@ -260,6 +265,7 @@ def main_forward(module,x,context,mask):
 class Script(modules.scripts.Script):
     def __init__(self):
         self.mode = ""
+        self.indexperiment = False
         self.w = 0
         self.h = 0
         self.usebase = False
@@ -340,7 +346,7 @@ class Script(modules.scripts.Script):
             self.mode = mode
             # SBM matrix mode detection.
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
-                self.mode = MATMODE
+                self.indexperiment = True
             self.w = p.width
             self.h = p.height
             self.batch_size = p.batch_size
@@ -353,7 +359,7 @@ class Script(modules.scripts.Script):
                 self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
                 self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
             # SBM In matrix mode, the ratios are broken up 
-            if self.mode == MATMODE:
+            if self.indexperiment:
                 # The addrow/addcol syntax is better, cannot detect regular breaks without it.
                 # In any case, the preferred method will anchor the L2 structure. 
                 if (KEYBASE in p.prompt.upper()): # Designated base.
@@ -367,21 +373,22 @@ class Script(modules.scripts.Script):
                 else:
                     baseprompt = ""
                     mainprompt = p.prompt
+                indflip = (mode == "Vertical")
                 if (KEYCOL in mainprompt.upper() or KEYROW in mainprompt.upper()):
                     breaks = mainprompt.count(KEYROW) + mainprompt.count(KEYCOL) + int(self.usebase)
                     # Prompt anchors, count breaks between special keywords.
-                    lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk)
+                    lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
                     # Standard ratios, split to rows and cols.
                     (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
-                                                    indsingles = True, fmap = ffloat, basestruct = lbreaks)
+                                                    indsingles = True, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
                     # More like "bweights", applied per cell only.
                     bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks)
                 else:
                     breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloat)
+                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloat, indflip = indflip)
                     # Cannot determine which breaks matter.
-                    lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2)
-                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks)
+                    lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
+                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
                     # If insufficient breaks, try to broadcast prompt - a bit dumb.
                     breaks = fcountbrk(mainprompt)
                     lastprompt = mainprompt.rsplit(KEYBRK)[-1]
@@ -493,7 +500,7 @@ def hook_forward(self, module):
         h_states = []
         contexts = context.clone()
         # SBM Matrix mode.
-        if MATMODE in self.mode:
+        if self.indexperiment:
             add = 0 # TEMP
             # Completely independent size calc.
             # Basically: sqrt(hw_ratio*x.size[1])
@@ -527,11 +534,17 @@ def hook_forward(self, module):
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
             
+            if "Horizontal" in self.mode:
+                dsout = dsw
+                dsin = dsh
+            elif "Vertical" in self.mode:
+                dsout = dsh
+                dsin = dsw
             indlast = False
-            sumh = 0
+            sumout = 0
             for drow in self.aratios:
                 v_states = []
-                sumw = 0
+                sumin = 0
                 for dcell in drow.cols:
                     # Grabs a set of tokens depending on number of unrelated breaks.
                     context = contexts[:,i * TOKENS:(i + 1 + dcell.breaks) * TOKENS,:]
@@ -542,34 +555,48 @@ def hook_forward(self, module):
                     
                     # Actual matrix split by region.
                     
-                    out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape. 
-                    sumw = sumw + int(dsw*dcell.ed) - int(dsw*dcell.st)
+                    out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
+                    sumin = sumin + int(dsin*dcell.ed) - int(dsin*dcell.st)
                     # if indlast:
-                    addh = 0
-                    addw = 0
+                    addout = 0
+                    addin = 0
                     if dcell.ed >= 0.999:
-                        addw = sumw - dsw
-                        sumh = sumh + int(dsh*drow.ed) - int(dsh*drow.st)
+                        addin = sumin - dsin
+                        sumout = sumout + int(dsout*drow.ed) - int(dsout*drow.st)
                         if drow.ed >= 0.999:
-                            addh = sumh - dsh
-                    
-                    out = out[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                              int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:]
+                            addout = sumout - dsout 
+                    if "Horizontal" in self.mode:
+                        out = out[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
+                                  int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:]
+                        if self.usebase : 
+                            # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
+                            outb_t = outb[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
+                                          int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:].clone()
+                            out = out * (1 - dcell.base) + outb_t * dcell.base
+                    elif "Vertical" in self.mode: # Cols are the outer list, rows are cells.
+                        out = out[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
+                                  int(dsout*drow.st) + addout:int(dsout*drow.ed),:]
+                        if self.usebase : 
+                            # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
+                            outb_t = outb[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
+                                          int(dsout*drow.st) + addout:int(dsout*drow.ed),:].clone()
+                            out = out * (1 - dcell.base) + outb_t * dcell.base
                     if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
-                    if self.usebase : 
-                        # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
-                        outb_t = outb[:,int(dsh*drow.st) + addh:int(dsh*drow.ed),
-                                      int(dsw*dcell.st) + addw:int(dsw*dcell.ed),:].clone()
-                        out = out * (1 - dcell.base) + outb_t * dcell.base
             
                     v_states.append(out)
                     if self.debug : 
                         for h in v_states:
                             print(h.size())
                             
-                ox = torch.cat(v_states,dim = 2) # First concat the cells to rows.
+                if "Horizontal" in self.mode:
+                    ox = torch.cat(v_states,dim = 2) # First concat the cells to rows.
+                elif "Vertical" in self.mode:
+                    ox = torch.cat(v_states,dim = 1) # Cols first mode, concat to cols.
                 h_states.append(ox)
-            ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
+            if "Horizontal" in self.mode:
+                ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
+            elif "Vertical" in self.mode:
+                ox = torch.cat(h_states,dim = 2)
             ox = ox.reshape(x.size()[0],x.size()[1],x.size()[2]) # Restore to 3d source.  
         else: # Regular handle.
             def separatecalc(x, contexts, mask, pn,divide):
