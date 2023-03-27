@@ -90,7 +90,7 @@ best quality, 20yo lady in garden, blue skirt
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
 ### 2D region assignment (experimental function)
-You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples.
+You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples. The direction selected in Divide mode is valid and ADDCOL/ADDROW is processed from the top/left.
 
 ```
 (blue sky:1.2) ADDCOL
@@ -180,7 +180,7 @@ best quality, 20yo lady in garden, blue skirt
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
 
 ### 2次元領域指定(実験的機能)
-領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。比率を指定しない場合や比率がセパレーターの数と一致しないときは自動的にすべて等倍として処理されます。ADDCOMMを最初のセパレーターとして入力した場合共通プロンプトになります。
+領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。比率を指定しない場合や比率がセパレーターの数と一致しないときは自動的にすべて等倍として処理されます。ADDCOMMを最初のセパレーターとして入力した場合共通プロンプトになります。Divide modeで選択された方向は有効であり、上から/左から順にADDCOL/ADDROWが処理されます。
 
 ```
 (blue sky:1.2) ADDCOL
