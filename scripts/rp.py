@@ -413,7 +413,6 @@ class Script(modules.scripts.Script):
                 elif self.usencom and KEYBRK in p.negative_prompt:
                     comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
                     p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
-                print(p.prompt)
                 # The addrow/addcol syntax is better, cannot detect regular breaks without it.
                 # In any case, the preferred method will anchor the L2 structure. 
                 if (KEYBASE in p.prompt.upper()): # Designated base.
@@ -516,13 +515,21 @@ class Script(modules.scripts.Script):
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 shared.batch_cond_uncond = False
                 del self.handle
+                self, p = calcdealer(self, p,calcmode)
                 global regioner
                 regioner.reset()
                 regioner.divide = self.divide if not self.usebase else self.divide  +1
                 regioner.batch = p.batch_size
-                p = calcdealer(p,calcmode)
+                if self.debug : print(p.prompt)
 
             print(f"pos tokens : {ppt}, neg tokens : {pnt}")
+            if debug : 
+                print(f"mode : {self.calcmode}\ndivide : {mode}\nratios : {aratios}\nusebase : {self.usebase}")
+                print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.indexperiment}")
+                print(f"divide : {self.divide}\neq : {self.eq}")
+                if self.indexperiment:
+                    for row in self.aratios:
+                        print(f"row : {row.st,row.ed},cell : {[[c.st,c.ed] for c in row.cols]}")
         else:   
             if hasattr(self,"handle"):
                 hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
@@ -606,12 +613,14 @@ class Script(modules.scripts.Script):
             batch = self.batch_size
             # x.shape = [batch_size, C, H // 8, W // 8]
             if self.filters == [] :
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios)
+                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
                 self.neg_filters = [1- f for f in self.filters]
             else:
                 if self.filters[0].size() != x[0].size():
-                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios)
+                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
                     self.neg_filters = [1- f for f in self.filters]
+
+            if self.debug : print("filterlength : ",len(self.filters))
 
             x = params.x
             xt = params.x.clone()
@@ -969,7 +978,7 @@ def commondealer(self, p, usecom, usencom):
         p.all_negative_prompts = self.all_negative_prompts
     return self, p
 
-def calcdealer(p, calcmode):
+def calcdealer(self, p, calcmode):
     if calcmode == "Latent":
         p.prompt = p.prompt.replace("BREAK", "AND")
         for i in lange(p.all_prompts):
@@ -977,7 +986,8 @@ def calcdealer(p, calcmode):
         p.negative_prompt = p.negative_prompt.replace("BREAK", "AND")
         for i in lange(p.all_negative_prompts):
             p.all_negative_prompts[i] = p.all_negative_prompts[i].replace("BREAK", "AND")
-    return p
+    self.divide = p.prompt.count("AND") + 1
+    return self, p
 
 
 ### for Latent mode
@@ -1063,30 +1073,52 @@ def lora_namer(self,p):
         print(regioner.u_llist)
 
 
-def makefilters(c,h,w,masks,mode,usebase,bratios): 
+def makefilters(c,h,w,masks,mode,usebase,bratios,xy): 
     filters = []
     x =  torch.zeros(c, h, w).to(devices.device)
     if usebase:
         x0 = torch.zeros(c, h, w).to(devices.device)
-    if "Horizontal" in mode:
-        for mask, bratio in zip(masks,bratios):
-            fx = x.clone()
-            if usebase:
-                fx[:,:,int(mask[0]*w):int(mask[1]*w)] = 1 - bratio
-                x0[:,:,int(mask[0]*w):int(mask[1]*w)] = bratio
-            else:
-                fx[:,:,int(mask[0]*w):int(mask[1]*w)] = 1
-            filters.append(fx)
-    elif "Vertical" in mode:
-        for mask, bratio in zip(masks,bratios):
-            fx = x.clone()
-            if usebase:
-                fx[:,int(mask[0]*h):int(mask[1]*h),:] = 1 -bratio
-                x0[:,int(mask[0]*h):int(mask[1]*h),:] = bratio
-            else:
-                fx[:,int(mask[0]*h):int(mask[1]*h),:] = 1
-            filters.append(fx)
+    i=0
+    if xy:
+        for drow in masks:
+            for dcell in drow.cols:
+                fx = x.clone()
+                if "Horizontal" in mode:
+                    if usebase:
+                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1 - dcell.base
+                        x0[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = dcell.base
+                    else:
+                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1    
+                elif "Vertical" in mode: 
+                    if usebase:
+                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1 - dcell.base
+                        x0[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = dcell.base
+                    else:
+                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1  
+                filters.append(fx)
+                i +=1
+    else:
+        if "Horizontal" in mode:
+            for mask, bratio in zip(masks,bratios):
+                fx = x.clone()
+                if usebase:
+                    fx[:,:,int(mask[0]*w):int(mask[1]*w)] = 1 - bratio
+                    x0[:,:,int(mask[0]*w):int(mask[1]*w)] = bratio
+                else:
+                    fx[:,:,int(mask[0]*w):int(mask[1]*w)] = 1
+                filters.append(fx)
+        elif "Vertical" in mode:
+            for mask, bratio in zip(masks,bratios):
+                fx = x.clone()
+                if usebase:
+                    fx[:,int(mask[0]*h):int(mask[1]*h),:] = 1 -bratio
+                    x0[:,int(mask[0]*h):int(mask[1]*h),:] = bratio
+                else:
+                    fx[:,int(mask[0]*h):int(mask[1]*h),:] = 1
+                filters.append(fx)
     if usebase : filters.insert(0,x0)
+    if labug : print(i,len(filters))
+
     return filters
 
 TE_START_NAME = "transformer_text_model_encoder_layers_0_self_attn_q_proj"
@@ -1095,7 +1127,6 @@ UNET_START_NAME = "diffusion_model_time_embed_0"
 class LoRARegioner:
 
     def __init__(self):
-        self.divide = 0
         self.te_count = 0
         self.u_count = 0
         self.uc_count = 1
@@ -1112,14 +1143,15 @@ class LoRARegioner:
             self.u_llist[-1][key] = 0
 
     def te_start(self):
-        self.mlist = self.te_llist[self.te_count % (self.divide + 1)]
+        self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
         self.te_count += 1
         import lora
         for i in range(len(lora.loaded_loras)):
             lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
 
     def u_start(self):
-        self.mlist = self.u_llist[self.u_count % (self.divide + 1)]
+        if labug : print("u_count",self.u_count ,"divide",{self.divide},"u_count '%' divide",  self.u_count % (self.divide + 1))
+        self.mlist = self.u_llist[self.u_count % len(self.u_llist)]
         self.u_count  += 1
         import lora
         for i in range(len(lora.loaded_loras)):
