@@ -111,7 +111,7 @@ Base Ratio :
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
 ### Acknowledgments
-I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparo](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/opparco) for helping to create the 2D generation code.
+I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/opparco) for helping to create the 2D generation code.
 
 # 概要
 Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。アイデアを発案されたfurusu様に感謝いたします。
@@ -205,7 +205,7 @@ Base Ratio :
 
 
 ## 謝辞
-Attention coupleを提案された[furusu](https://note.com/gcem156)氏、Latent coupleを提案された[opparo](https://github.com/opparco)氏、2D生成のコード作成に協力して頂いた[Symbiomatrix](https://github.com/Symbiomatrix)に感謝します。
+Attention coupleを提案された[furusu](https://note.com/gcem156)氏、Latent coupleを提案された[opparco](https://github.com/opparco)氏、2D生成のコード作成に協力して頂いた[Symbiomatrix](https://github.com/Symbiomatrix)に感謝します。
 
 ## update/更新情報
 - 75トークン以上を入力できるようになりました
