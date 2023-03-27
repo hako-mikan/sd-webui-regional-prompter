@@ -280,6 +280,8 @@ class Script(modules.scripts.Script):
         self.w = 0
         self.h = 0
         self.usebase = False
+        self.usecom = False
+        self.usencom = False
         self.aratios = []
         self.bratios = []
         self.divide = 0
@@ -561,6 +563,13 @@ def hook_forward(self, module):
             # dsw = round_dim(width, scale)
             dsh = repeat_div(height,scale)
             dsw = repeat_div(width,scale)
+            
+            if "Horizontal" in self.mode: # Map columns / rows first to outer / inner.
+                dsout = dsw
+                dsin = dsh
+            elif "Vertical" in self.mode:
+                dsout = dsh
+                dsin = dsw
 
             tll = self.pt if pn else self.nt
 
@@ -582,12 +591,6 @@ def hook_forward(self, module):
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
             
-            if "Horizontal" in self.mode:
-                dsout = dsw
-                dsin = dsh
-            elif "Vertical" in self.mode:
-                dsout = dsh
-                dsin = dsw
             indlast = False
             sumout = 0
 
@@ -614,30 +617,30 @@ def hook_forward(self, module):
                     # Actual matrix split by region.
                     
                     out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
-                    sumin = sumin + int(dsin*dcell.ed) - int(dsin*dcell.st)
                     # if indlast:
                     addout = 0
                     addin = 0
+                    sumin = sumin + int(dsin*dcell.ed) - int(dsin*dcell.st)
                     if dcell.ed >= 0.999:
                         addin = sumin - dsin
                         sumout = sumout + int(dsout*drow.ed) - int(dsout*drow.st)
                         if drow.ed >= 0.999:
                             addout = sumout - dsout
                     if "Horizontal" in self.mode:
-                        out = out[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
-                                    int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:]
+                        out = out[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
+                                    int(dsw*dcell.st) + addin:int(dsw*dcell.ed),:]
                         if self.usebase : 
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
-                            outb_t = outb[:,int(dsout*drow.st) + addout:int(dsout*drow.ed),
-                                            int(dsin*dcell.st) + addin:int(dsin*dcell.ed),:].clone()
+                            outb_t = outb[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
+                                            int(dsw*dcell.st) + addin:int(dsw*dcell.ed),:].clone()
                             out = out * (1 - dcell.base) + outb_t * dcell.base
                     elif "Vertical" in self.mode: # Cols are the outer list, rows are cells.
-                        out = out[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
-                                  int(dsout*drow.st) + addout:int(dsout*drow.ed),:]
+                        out = out[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
+                                  int(dsw*drow.st) + addout:int(dsw*drow.ed),:]
                         if self.usebase : 
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
-                            outb_t = outb[:,int(dsin*dcell.st) + addin:int(dsin*dcell.ed),
-                                          int(dsout*drow.st) + addout:int(dsout*drow.ed),:].clone()
+                            outb_t = outb[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
+                                          int(dsw*drow.st) + addout:int(dsw*drow.ed),:].clone()
                             out = out * (1 - dcell.base) + outb_t * dcell.base
                     if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
             
