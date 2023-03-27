@@ -7,14 +7,14 @@
 - 垂直/平行方向に分割された領域ごとに異なるプロンプトを指定できます
 
 ## update/更新情報
-- 75トークン以上を入力できるようになりました
-- 共通プロンプトを設定できるようになりました
-- 設定がPNG infoに保存されるようになりました
-- プリセット機能を追加しました
-- support over 75 tokens
-- common prompts can be set
-- setting parameters saved in PNG info
-- preset feature added
+- new feature "2D-Region"
+- new Generation method "Latent" added. Generation is slower, but LoRA can be separated to some extent.
+- 新機能2D領域を追加しました
+- 新しい計算方式「Latent」を追加しました。生成が遅くなりますがLoRAをある程度分離できます
+
+Thanks to the great cooperation of [Symbiomatrix](https://github.com/Symbiomatrix), we can now specify [more flexible areas](#2d-region-assignment-experimental-function).  
+[Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより[柔軟な領域指定](#2次元領域指定実験的機能)が可能になりました。
+
 
 日本語解説は[後半](概要)です。
 
@@ -61,6 +61,16 @@ If you enter 1,1,1, the area will be divided into three parts (33,3%, 33,3%, 33,
 ### Divide mode
 Specifies the direction of division. Horizontal and vertical directions can be specified.
 
+### calcutation mode  
+#### Attention  
+Normally, use this one.  
+#### Latent
+If you want to separate LoRA, use this one. Although the generation time is longer, LoRA can be separated to some extent. The generation time is the number of areas x the generation time of one pic.
+
+Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid-figures-lora),
+[figma](https://civitai.com/models/7984/figma-anime-figures) LoRA separated into left and right sides to create.  
+<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
+
 ### Use common prompt
 If this option enabled, first part of the prompt is added to all part.
 ```
@@ -77,8 +87,26 @@ best quality, 20yo lady in garden, blue skirt
 ```
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
-### presets
-You can save the setting to presets using preset tab. Presets file located in `web-ui-root/scripts/regional_prompter_presets.csv`. Settiing for last generations is automatically saved to presets: `lastrun`.
+### 2D region assignment (experimental function)
+You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt.
+
+```
+(blue sky:1.2) ADDCOL
+green hair twintail ADDCOL
+(aquarium:1.3) ADDROW
+(messy desk:1.2) ADDCOL
+orange dress and sofa
+```
+
+```
+Active : On
+Use base prompt : Off
+Divide mode : Vertical（same result for both）
+Divide Ratio : 1,2,1,1;2,4,6
+Base Ratio : 
+```
+
+![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
 # 概要
 Latent couple extentionではプロンプトごとにU-Netの計算を行っていますが、このエクステンションではU-Netの内部でプロンプトごとの計算を行います。詳しくは[こちら](https://note.com/gcem156/n/nb3d516e376d7)をご参照ください。アイデアを発案されたfurusu様に感謝いたします。
@@ -118,6 +146,16 @@ Base Ratio :
 ### Divide ratio
 領域の広さを指定します。1,1,1と入力した場合、三分割されます(33,3%,33,3%,33,3%)。3,1,1と入力した場合60%,20%,20%となります。小数点でも入力可能です。0.1,0.1,0.1は1,1,1と同じ結果になります。
 
+### calcutation mode  
+#### Attention  
+通常はこちらを使用して下さい
+#### Latent
+LoRAを分離したい場合こちらを使用して下さい。生成時間は長くなりますが、ある程度LoRAを分離できます。
+
+[ねんどろいど](https://civitai.com/models/7269/nendoroid-figures-lora),
+[figma](https://civitai.com/models/7984/figma-anime-figures)LoRAを左右に分離して作成した例。  
+<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
+
 ### Divide mode
 分割方向を指定します。水平、垂直方向が指定できます。
 
@@ -137,5 +175,32 @@ best quality, 20yo lady in garden, blue skirt
 ```
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
 
-### プリセット
-設定を保存できます。`web-ui-root/scripts/regional_prompter_presets.csv`に保存されています。最後に生成した設定は自動的に`lastrun`に保存されます。
+### 2次元領域指定(実験的機能)
+領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。
+
+```
+(blue sky:1.2) ADDCOL
+green hair twintail ADDCOL
+(aquarium:1.3) ADDROW
+(messy desk:1.2) ADDCOL
+orange dress and sofa
+```
+
+```
+Active : On
+Use base prompt : Off
+Divide mode : Vertical（どちらを選んでも同じ結果になります）
+Divide Ratio : 1,2,1,1;2,4,6
+Base Ratio : 
+```
+
+![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
+
+
+## update/更新情報
+- 75トークン以上を入力できるようになりました
+- 共通プロンプトを設定できるようになりました
+- 設定がPNG infoに保存されるようになりました
+- support over 75 tokens
+- common prompts can be set
+- setting parameters saved in PNG info
