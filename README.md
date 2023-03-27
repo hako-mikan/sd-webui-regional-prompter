@@ -19,7 +19,7 @@ Thanks to the great cooperation of [Symbiomatrix](https://github.com/Symbiomatri
 日本語解説は[後半](概要)です。
 
 # Overview
-Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here](https://note.com/gcem156/n/nb3d516e376d7) for details.Thanks to furusu for initiating the idea.
+Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here(Japanese)](https://note.com/gcem156/n/nb3d516e376d7) for details.Thanks to furusu for initiating the idea. Additional, Latent mode also support.
 
 ## Usage
 This section explains how to use the following image, explaining how to create the following image.  
