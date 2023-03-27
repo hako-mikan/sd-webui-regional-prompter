@@ -50,7 +50,8 @@ Negative prompts can also be set for each area by separating them with BREAK, bu
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
 When using base prompt, the first prompt separated by BREAK is treated as the base prompt.
-Therefore, when this option is enabled, one more BRAKE-separated prompt is required than Divide ratios.
+Therefore, when this option is enabled, one more BRAKE-separated prompt is required than Divide ratios.  
+Automatically turned on when ADDBASE is entered.
 
 ### Base ratio
 Sets the ratio of the base prompt; if 0.2 is setted, the base ratio is 0.2. It can also be specified for each region, and can be entered as 0.2, 0.3, 0.5, etc. If a single value is entered, the same value is applied to all areas.
@@ -72,7 +73,8 @@ Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid
 <img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
 
 ### Use common prompt
-If this option enabled, first part of the prompt is added to all part.
+If this option enabled, first part of the prompt is added to all part.  
+Automatically turned on when ADDCOMM is entered.
 ```
 best quality, 20yo lady in garden BREAK
 green hair twintail BREAK
@@ -88,7 +90,7 @@ best quality, 20yo lady in garden, blue skirt
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
 ### 2D region assignment (experimental function)
-You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt.
+You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples.
 
 ```
 (blue sky:1.2) ADDCOL
@@ -101,7 +103,7 @@ orange dress and sofa
 ```
 Active : On
 Use base prompt : Off
-Divide mode : Vertical（same result for both）
+Divide mode : Horizontal
 Divide Ratio : 1,2,1,1;2,4,6
 Base Ratio : 
 ```
@@ -139,6 +141,7 @@ Base Ratio :
 ### Use base prompt
 ベースプロンプトとはすべての領域に共通のプロンプトを使用したい場合チェックを入れます。領域で一貫した場面にしたい場合などは使ってください。
 ベースプロンプトを使用する場合、BREAK区切られた最初のプロンプトがベースとして扱われます。
+ADDBASEが入力された場合、自動的にオンになります。
 
 ### Base ratio
 ベースプロンプトの比率を設定します。0.2と入力された場合、ベースの割合が0.2になります。領域ごとにも指定可能で、0.2,0.3,0.5などと入力できます。単一の値を入力した場合はすべての領域に同じ値が適応されます。
@@ -161,6 +164,7 @@ LoRAを分離したい場合こちらを使用して下さい。生成時間は�
 
 ### Use common prompt
 このオプションを有効化すると最初のプロンプトをすべてのプロンプトに加算します。
+ADDCOMMが入力された場合自動的にオンになります。
 ```
 best quality, 20yo lady in garden BREAK
 green hair twintail BREAK
@@ -176,7 +180,7 @@ best quality, 20yo lady in garden, blue skirt
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
 
 ### 2次元領域指定(実験的機能)
-領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。
+領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。比率を指定しない場合や比率がセパレーターの数と一致しないときは自動的にすべて等倍として処理されます。ADDCOMMを最初のセパレーターとして入力した場合共通プロンプトになります。
 
 ```
 (blue sky:1.2) ADDCOL
@@ -189,7 +193,7 @@ orange dress and sofa
 ```
 Active : On
 Use base prompt : Off
-Divide mode : Vertical（どちらを選んでも同じ結果になります）
+Divide mode : Horizontal
 Divide Ratio : 1,2,1,1;2,4,6
 Base Ratio : 
 ```
