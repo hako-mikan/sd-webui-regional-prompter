@@ -134,7 +134,7 @@ a girl ADDROMM(or ADDBASE)
 red hair BREAK
 green dress
 ```
-If there is a prompt that says , in the common case, region 1 is generated with the prompt ^a girl red hair^. In the base case, if the ratio is 0.2, it is generated with the prompt (a girl) * 0.2 + (red hair) * 0.8. Basically, there is no problem with the common prompt. You may want to try the base if the common prompt is too strong.
+If there is a prompt that says , in the common case, region 1 is generated with the prompt `a girl red hair`. In the base case, if the ratio is 0.2, it is generated with the prompt (a girl) * 0.2 + (red hair) * 0.8. Basically, there is no problem with the common prompt. You may want to try the base if the common prompt is too strong.
 
 ### Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/opparco) for helping to create the 2D generation code.
