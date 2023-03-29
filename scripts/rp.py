@@ -567,7 +567,7 @@ class Script(modules.scripts.Script):
                 self, p = commondealer(self, p, usecom, usencom)
     
             self.pt, self.nt ,ppt,pnt, self.eq = tokendealer(p)
-            print(p.all_prompts[0])
+
             #self.eq = True if len(self.pt) == len(self.nt) else False
             
             if calcmode == "Attention":
