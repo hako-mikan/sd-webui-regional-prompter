@@ -331,7 +331,6 @@ class Script(modules.scripts.Script):
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
             with gr.Row():
                 mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical"], value="Horizontal",  type="value", interactive=True)
-            with gr.Row():
                 calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
             with gr.Row(visible=True):
                 ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
