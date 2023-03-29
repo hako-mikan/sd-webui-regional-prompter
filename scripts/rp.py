@@ -1,11 +1,15 @@
 from random import choices
 from matplotlib.style import available
+import PIL
 import inspect
+import random
 import copy
+from regex import R
 import torch
 import csv
 import math
 import gradio as gr
+import numpy as np
 import os.path
 from pprint import pprint
 import modules.ui
@@ -337,7 +341,11 @@ class Script(modules.scripts.Script):
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
             with gr.Row():
-                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                with gr.Column():
+                    maketemp = gr.Button(value="visualize and make template")
+                    template = gr.Textbox(label="template",interactive=True,visible=True)
+                with gr.Column():
+                    areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
 
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
@@ -346,8 +354,9 @@ class Script(modules.scripts.Script):
                 with gr.Row():
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
-
-            settings = [mode, ratios, baseratios, usebase, usecom, usencom]
+            with gr.Row():
+                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode]
         
         def setpreset(select):
             presets = loadpresets(filepath)
@@ -357,8 +366,66 @@ class Script(modules.scripts.Script):
                 return text == "TRUE" or text == "true" or text == "True"
             preset[1],preset[2] = preset[1].replace('"',""),preset[2].replace('"',"")
             preset[3],preset[4],preset[5] = booler(preset[3]),booler(preset[4]),booler(preset[5])
+            while 7 > len(preset):
+                preset.append("")
+            if preset[6] == "" : preset[6] = "Attention"
             return [gr.update(value = pr) for pr in preset]
+        
+        def makeimgtmp(aratio,mode,usecom,usebase):
+            aratios = aratio.split(";")
+            if len(aratios) == 1 : aratios[0] = "1," + aratios[0]
+            h = w = 128
+            icells = []
+            ocells = []
+            def startend(lst):
+                o = []
+                s = 0
+                lst = [l/sum(lst) for l in lst]
+                for i in lange(lst):
+                    if i == 0 :o.append([0,lst[0]])
+                    else : o.append([s, s + lst[i]])
+                    s = s + lst[i]
+                return o
+            for rc in aratios:
+                rc = rc.split(",")
+                rc = [float(r) for r in rc]
+                if len(rc) == 1 : rc = [rc[0]]*2
+                ocells.append(rc[0])
+                icells.append(startend(rc[1:]))
+            fx = np.zeros((h,w, 3), np.uint8)
+            ocells = startend(ocells)
+            print(ocells,icells)
+            for i,ocell in enumerate(ocells):
+                for icell in icells[i]:
+                    if "Horizontal" in mode:
+                        fx[int(h*ocell[0]):int(h*ocell[1]),int(w*icell[0]):int(w*icell[1]),:] = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
+                    elif "Vertical" in mode: 
+                        fx[int(h*icell[0]):int(h*icell[1]),int(w*ocell[0]):int(w*ocell[1]),:] = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
+            img = PIL.Image.fromarray(fx)
+            draw = PIL.ImageDraw.Draw(img)
+            c = 0
+            def coldealer(col):
+                if sum(col) > 380:return "black"
+                else:return "white"
+            temp = ""
+            for i,ocell in enumerate(ocells):
+                for j,icell in enumerate(icells[i]):
+                    if "Horizontal" in mode:
+                        draw.text((int(w*icell[0]),int(h*ocell[0])),f"{c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]))
+                        if j != len(icells[i]) -1 : temp = temp + " " + KEYCOL + "\n"
+                    elif "Vertical" in mode: 
+                        draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
+                        if j != len(icells[i]) -1 : temp = temp + " " + KEYROW + "\n"
+                    c += 1
+                if "Horizontal" in mode and i !=len(ocells)-1 :
+                    temp = temp+ " " + KEYROW + "\n"
+                elif "Vertical" in mode and i !=len(ocells) -1 :
+                    temp = temp + " " + KEYCOL + "\n"
+            if usebase : temp = " " + KEYBASE + "\n" +temp
+            if usecom : temp = " " + KEYCOMM + "\n" +temp
+            return img,gr.update(value = temp)
 
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mode,usecom,usebase],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
@@ -366,7 +433,7 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode):
         if active:
-            savepresets("lastrun",mode, aratios, usebase, bratios, usecom, usencom)
+            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode)
             self.__init__()
             self.active = True
             self.mode = mode
@@ -387,7 +454,6 @@ class Script(modules.scripts.Script):
             self.usecom = usecom
             if KEYCOMM in p.prompt: # Automatic common toggle.
                 self.usecom = True
-            self.usencom = usencom
             if KEYCOMM in p.negative_prompt: # Automatic common toggle.
                 self.usencom = True
 
@@ -502,6 +568,7 @@ class Script(modules.scripts.Script):
                 self, p = commondealer(self, p, usecom, usencom)
     
             self.pt, self.nt ,ppt,pnt, self.eq = tokendealer(p)
+            print(p.all_prompts[0])
             #self.eq = True if len(self.pt) == len(self.nt) else False
             
             if calcmode == "Attention":
@@ -991,13 +1058,13 @@ def calcdealer(self, p, calcmode):
 
 
 ### for Latent mode
-def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom):
+def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom, calcmode):
     path_root = scripts.basedir()
     filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
     try:
         with open(filepath,mode = 'r',encoding="utf-8") as f:
             presets = f.readlines()
-            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)}\n'
+            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)}\n'
             written = False
             if name == "lastrun":
                 for i, preset in enumerate(presets):
