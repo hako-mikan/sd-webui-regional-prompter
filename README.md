@@ -45,12 +45,12 @@ If checked, this extention is enabled.
 
 ### Prompt
 Prompts for different areas are separated by "BREAK". Enter prompts from the left for horizontal prompts and from the top for vertical prompts.
-Negative prompts can also be set for each area by separating them with BREAK, but if BREAK is not entered, the same negative prompt will be set for all areas.
+Negative prompts can also be set for each area by separating them with `BREAK`, but if `BREAK` is not entered, the same negative prompt will be set for all areas.
 
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
-When using base prompt, the first prompt separated by BREAK is treated as the base prompt.
-Therefore, when this option is enabled, one more BRAKE-separated prompt is required than Divide ratios.  
+When using base prompt, the first prompt separated by `BREAK` is treated as the base prompt.
+Therefore, when this option is enabled, one more `BRAKE`-separated prompt is required than Divide ratios.  
 Automatically turned on when ADDBASE is entered.
 
 ### Base ratio
@@ -74,7 +74,7 @@ Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid
 
 ### Use common prompt
 If this option enabled, first part of the prompt is added to all part.  
-Automatically turned on when ADDCOMM is entered.
+Automatically turned on when `ADDCOMM` is entered.
 ```
 best quality, 20yo lady in garden BREAK
 green hair twintail BREAK
@@ -90,7 +90,7 @@ best quality, 20yo lady in garden, blue skirt
 So you need to set 4 prompts for 3 regions. If Use base prompt is also enabled 5 prompts are needed. The order is as follows, common,base, prompt1,prompt2,...
 
 ### 2D region assignment (experimental function)
-You can specify a region in two dimensions. Using a special separator (ADDCOL/ADDROW), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by ADDCOL and vertically when separated by ADDROW. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use BREAK alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using ADDBASE as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples. The direction selected in Divide mode is valid and ADDCOL/ADDROW is processed from the top/left.
+You can specify a region in two dimensions. Using a special separator (`ADDCOL/ADDROW`), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by `ADDCOL` and vertically when separated by `ADDROW`. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use `BREAK` alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using `ADDBASE `as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples. The direction selected in Divide mode is valid and `ADDCOL/ADDROW` is processed from the top/left.
 
 ```
 (blue sky:1.2) ADDCOL
@@ -109,6 +109,32 @@ Base Ratio :
 ```
 
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
+
+### visualise and make template
+Areas can be visualized and templates for prompts can be created.
+
+![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/tutorial.jpg)
+
+Enter the area ratio and press the button to make the area appear. Next, copy and paste the prompt template into the prompt input field.
+
+```
+fantasy ADDCOMM
+sky ADDROW
+castle ADDROW
+street stalls ADDCOL
+2girls eating and walking on street ADDCOL
+street stalls
+```
+Result is following,
+![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg)
+
+### difference between base and common
+```
+a girl ADDROMM(or ADDBASE)
+red hair BREAK
+green dress
+```
+If there is a prompt that says , in the common case, region 1 is generated with the prompt ^a girl red hair^. In the base case, if the ratio is 0.2, it is generated with the prompt (a girl) * 0.2 + (red hair) * 0.8. Basically, there is no problem with the common prompt. You may want to try the base if the common prompt is too strong.
 
 ### Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/opparco) for helping to create the 2D generation code.
@@ -167,7 +193,7 @@ LoRAを分離したい場合こちらを使用して下さい。生成時間は�
 
 ### Use common prompt
 このオプションを有効化すると最初のプロンプトをすべてのプロンプトに加算します。
-ADDCOMMが入力された場合自動的にオンになります。
+`ADDCOMM`が入力された場合自動的にオンになります。
 ```
 best quality, 20yo lady in garden BREAK
 green hair twintail BREAK
@@ -183,7 +209,7 @@ best quality, 20yo lady in garden, blue skirt
 よって、3つの領域に分ける場合4つのプロンプトをセットする必要があります。Use base promptが有効になっている場合は5つ必要になります。設定順はcommon,base, prompt1,prompt2,...となります。
 
 ### 2次元領域指定(実験的機能)
-領域を2次元的に指定できます。特別なセパレイター(ADDCOL/ADDROW)を用いることで領域を縦横に分割することができます。左上を始点として、ADDCOLで区切ると横方向、ADDROWで区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。BREAKのみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとしてADDBASEを使用すると、ベースプロンプトになります。比率を指定しない場合や比率がセパレーターの数と一致しないときは自動的にすべて等倍として処理されます。ADDCOMMを最初のセパレーターとして入力した場合共通プロンプトになります。Divide modeで選択された方向は有効であり、上から/左から順にADDCOL/ADDROWが処理されます。
+領域を2次元的に指定できます。特別なセパレイター(`ADDCOL/ADDROW`)を用いることで領域を縦横に分割することができます。左上を始点として、`ADDCOL`で区切ると横方向、`ADDROW`で区切ると縦方向に分割されます。分割の比率はセミコロンで区切られた比率で指定します。以下に例を示します。`BREAK`のみで記述し、比率のみで記述することも可能ですが、明示的にCOL/ROWを指定した方がわかりやすいです。最初のセパレーターとして`ADDBASE`を使用すると、ベースプロンプトになります。比率を指定しない場合や比率がセパレーターの数と一致しないときは自動的にすべて等倍として処理されます。`ADDCOMM`を最初のセパレーターとして入力した場合共通プロンプトになります。Divide modeで選択された方向は有効であり、上から/左から順に`ADDCOL/ADDROW`が処理されます。
 
 ```
 (blue sky:1.2) ADDCOL
@@ -203,6 +229,32 @@ Base Ratio :
 
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
+### visualise and make template
+複雑な領域指定をする場合など領域を可視化して、テンプレートを作成します。
+
+![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/tutorial.jpg)
+
+入力を終えてボタンを押すと、画像のように領域とテンプレートが出力されます。テンプレートをコピペして使用して下さい。以下は入力例と出力結果です。
+
+```
+fantasy ADDCOMM
+sky ADDROW
+castle ADDROW
+street stalls ADDCOL
+2girls eating and walking on street ADDCOL
+street stalls
+```
+
+![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg
+)
+
+### ベースと共通の違い
+```
+a girl ADDROMM(or ADDBASE)
+red hair BREAK
+green dress
+```
+と言うプロンプトがあった場合、共通の場合には領域1は`a girl red hair`というプロンプトで生成されます。ベースの場合で比率が0.2の場合には` (a girl) * 0.2 + (red hair) * 0.8`というプロンプトで生成されます。基本的には共通プロンプトで問題ありません。共通プロンプトの効きが強いという場合などはベースにしてみてもいいかもしれません。
 
 ## 謝辞
 Attention coupleを提案された[furusu](https://note.com/gcem156)氏、Latent coupleを提案された[opparco](https://github.com/opparco)氏、2D生成のコード作成に協力して頂いた[Symbiomatrix](https://github.com/Symbiomatrix)に感謝します。
