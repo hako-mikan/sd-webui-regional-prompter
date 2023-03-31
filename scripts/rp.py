@@ -605,6 +605,8 @@ class Script(modules.scripts.Script):
                 hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
                 del self.handle
                 if hasattr(self,"batch_cond_uncond") : shared.batch_cond_uncond = self.batch_cond_uncond
+            global lactive
+            lactive = False
         return p
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,**kwargs):
