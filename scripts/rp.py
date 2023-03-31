@@ -612,7 +612,7 @@ class Script(modules.scripts.Script):
         global lactive,labug
         if active and calcmode =="Latent":
             import lora
-            global orig_lora_forward,orig_lora_apply_weights,lactive,lora_calc_updown ,loaded_loras,newwebui,orig_lora_Linear_forward,lora_Conv2d_forward
+            global orig_lora_forward,orig_lora_apply_weights,lactive
             if hasattr(lora,"lora_apply_weights"):
                 if self.debug : print("hijack lora_apply_weights")
                 orig_lora_apply_weights = lora.lora_apply_weights
@@ -1333,7 +1333,7 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
             else:
                 self.weight.copy_(weights_backup)
 
-        for lora in loaded_loras:
+        for lora in loramodule.loaded_loras:
             module = lora.modules.get(lora_layer_name, None)
             if module is not None and hasattr(self, 'weight'):
                 self.weight += lora_calc_updown(lora, module, self.weight)
