@@ -1,4 +1,5 @@
 from random import choices
+from typing import Union
 from matplotlib.style import available
 import PIL
 import inspect
@@ -40,6 +41,10 @@ def lange(l):
     return range(len(l))
 
 orig_lora_forward = None
+orig_lora_apply_weights = None
+orig_lora_Linear_forward = None
+orig_lora_Conv2d_forward = None
+lora_calc_updown = None
 lactive = False
 labug =False
 
@@ -607,13 +612,21 @@ class Script(modules.scripts.Script):
         global lactive,labug
         if active and calcmode =="Latent":
             import lora
-            global orig_lora_forward,lactive
+            global orig_lora_forward,orig_lora_apply_weights,lactive,lora_calc_updown ,loaded_loras,newwebui,orig_lora_Linear_forward,lora_Conv2d_forward
+            if hasattr(lora,"lora_apply_weights"):
+                if self.debug : print("hijack lora_apply_weights")
+                orig_lora_apply_weights = lora.lora_apply_weights
+                lora.lora_apply_weights = lora_apply_weights
+            elif hasattr(lora,"lora_forward"):
+                if self.debug : print("hijack lora_forward")
+                orig_lora_forward = lora.lora_forward
+                lora.lora_forward = lora_forward
             lactive = True
             labug = self.debug
-            lora.lora_forward = lora_forward
             self = lora_namer(self,p)
         else:
             lactive = False
+
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode):
@@ -637,6 +650,15 @@ class Script(modules.scripts.Script):
         with open(os.path.join(paths.data_path, "params.txt"), "w", encoding="utf8") as file:
             processed = Processed(p, [], p.seed, "")
             file.write(processed.infotext(p, 0))
+        
+        if orig_lora_apply_weights != None :
+            import lora
+            lora.lora_apply_weights = orig_lora_apply_weights
+
+        if orig_lora_forward != None :
+            import lora
+            lora.lora_forward = orig_lora_forward
+
 
 ###################################################
 # Latent Method
@@ -1124,7 +1146,7 @@ def lora_namer(self,p):
             names = names + called.items[0]
             tdict[called.items[0]] = called.items[1]
         for key in llist[i].keys():
-            if key not in names:
+            if key.split("added_by_lora_block_weight")[0] not in names:
                 llist[i+1][key] = 0
             elif key in names:
                 llist[i+1][key] = float(tdict[key])
@@ -1134,6 +1156,7 @@ def lora_namer(self,p):
     regioner.u_llist.append(llist[0])
     regioner.l_count = len(loraclass.loaded_loras)
     regioner.ndeleter()
+    regioner.loras = loraclass.loaded_loras
     if self.debug:
         print(regioner.te_llist)
         print(regioner.u_llist)
@@ -1200,6 +1223,7 @@ class LoRARegioner:
         self.te_llist = [{}]
         self.u_llist = [{}]
         self.mlist = {}
+        self.bmlist={}
         self.batch = 0
 
     def ndeleter(self):
@@ -1216,7 +1240,7 @@ class LoRARegioner:
             lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
 
     def u_start(self):
-        if labug : print("u_count",self.u_count ,"divide",{self.divide},"u_count '%' divide",  self.u_count % (self.divide + 1))
+        if labug : print("u_count",self.u_count ,"divide",{self.divide},"u_count '%' divide",  self.u_count % len(self.u_llist))
         self.mlist = self.u_llist[self.u_count % len(self.u_llist)]
         self.u_count  += 1
         import lora
@@ -1228,6 +1252,7 @@ class LoRARegioner:
         self.u_count = 0
     
 regioner = LoRARegioner()
+
 
 def lora_forward(module, input, res):
     import lora
@@ -1269,3 +1294,69 @@ def lora_forward(module, input, res):
                     "Your settings, extensions or models are not compatible with each other."
                 )
     return res
+
+
+def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.MultiheadAttention]):
+    import lora as loramodule
+
+    lora_layer_name = getattr(self, 'lora_layer_name', None)
+    if lora_layer_name is None:
+        return
+
+    if lactive:
+        global regioner
+
+        if lora_layer_name == TE_START_NAME:
+            regioner.te_start()
+        elif lora_layer_name == UNET_START_NAME:
+            regioner.u_start()
+
+    current_names = getattr(self, "lora_current_names", ())
+    wanted_names = tuple((x.name, x.multiplier) for x in loramodule.loaded_loras)
+
+    if lactive : current_names = None
+
+    weights_backup = getattr(self, "lora_weights_backup", None)
+    if weights_backup is None:
+        if isinstance(self, torch.nn.MultiheadAttention):
+            weights_backup = (self.in_proj_weight.to(devices.cpu, copy=True), self.out_proj.weight.to(devices.cpu, copy=True))
+        else:
+            weights_backup = self.weight.to(devices.cpu, copy=True)
+
+        self.lora_weights_backup = weights_backup
+
+    if current_names != wanted_names:
+        if weights_backup is not None:
+            if isinstance(self, torch.nn.MultiheadAttention):
+                self.in_proj_weight.copy_(weights_backup[0])
+                self.out_proj.weight.copy_(weights_backup[1])
+            else:
+                self.weight.copy_(weights_backup)
+
+        for lora in loaded_loras:
+            module = lora.modules.get(lora_layer_name, None)
+            if module is not None and hasattr(self, 'weight'):
+                self.weight += lora_calc_updown(lora, module, self.weight)
+                continue
+
+            module_q = lora.modules.get(lora_layer_name + "_q_proj", None)
+            module_k = lora.modules.get(lora_layer_name + "_k_proj", None)
+            module_v = lora.modules.get(lora_layer_name + "_v_proj", None)
+            module_out = lora.modules.get(lora_layer_name + "_out_proj", None)
+
+            if isinstance(self, torch.nn.MultiheadAttention) and module_q and module_k and module_v and module_out:
+                updown_q = lora_calc_updown(lora, module_q, self.in_proj_weight)
+                updown_k = lora_calc_updown(lora, module_k, self.in_proj_weight)
+                updown_v = lora_calc_updown(lora, module_v, self.in_proj_weight)
+                updown_qkv = torch.vstack([updown_q, updown_k, updown_v])
+
+                self.in_proj_weight += updown_qkv
+                self.out_proj.weight += lora_calc_updown(lora, module_out, self.out_proj.weight)
+                continue
+
+            if module is None:
+                continue
+
+            print(f'failed to calculate lora weights for layer {lora_layer_name}')
+
+        setattr(self, "lora_current_names", wanted_names)
