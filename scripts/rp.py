@@ -44,7 +44,6 @@ orig_lora_forward = None
 orig_lora_apply_weights = None
 orig_lora_Linear_forward = None
 orig_lora_Conv2d_forward = None
-lora_calc_updown = None
 lactive = False
 labug =False
 
@@ -1336,7 +1335,7 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
         for lora in loramodule.loaded_loras:
             module = lora.modules.get(lora_layer_name, None)
             if module is not None and hasattr(self, 'weight'):
-                self.weight += lora_calc_updown(lora, module, self.weight)
+                self.weight += loramodule.lora_calc_updown(lora, module, self.weight)
                 continue
 
             module_q = lora.modules.get(lora_layer_name + "_q_proj", None)
@@ -1345,13 +1344,13 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
             module_out = lora.modules.get(lora_layer_name + "_out_proj", None)
 
             if isinstance(self, torch.nn.MultiheadAttention) and module_q and module_k and module_v and module_out:
-                updown_q = lora_calc_updown(lora, module_q, self.in_proj_weight)
-                updown_k = lora_calc_updown(lora, module_k, self.in_proj_weight)
-                updown_v = lora_calc_updown(lora, module_v, self.in_proj_weight)
+                updown_q = loramodule.lora_calc_updown(lora, module_q, self.in_proj_weight)
+                updown_k = loramodule.lora_calc_updown(lora, module_k, self.in_proj_weight)
+                updown_v = loramodule.lora_calc_updown(lora, module_v, self.in_proj_weight)
                 updown_qkv = torch.vstack([updown_q, updown_k, updown_v])
 
                 self.in_proj_weight += updown_qkv
-                self.out_proj.weight += lora_calc_updown(lora, module_out, self.out_proj.weight)
+                self.out_proj.weight += loramodule.lora_calc_updown(lora, module_out, self.out_proj.weight)
                 continue
 
             if module is None:
