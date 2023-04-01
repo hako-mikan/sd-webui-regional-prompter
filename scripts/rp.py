@@ -15,8 +15,8 @@ import os.path
 from pprint import pprint
 import modules.ui
 import ldm.modules.attention as atm
-from modules import shared,scripts,extra_networks,devices
-from modules.processing import Processed,paths
+from modules import shared,scripts,extra_networks,devices,paths
+from modules.processing import Processed
 from modules.script_callbacks import CFGDenoisedParams, on_cfg_denoised ,CFGDenoiserParams,on_cfg_denoiser
 
 
