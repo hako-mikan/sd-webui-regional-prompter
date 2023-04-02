@@ -358,6 +358,7 @@ class Script(modules.scripts.Script):
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
             with gr.Row():
+                nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
             settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode]
         
@@ -432,9 +433,9 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
-        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode]
+        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand]
 
-    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode):
+    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand):
         if active:
             savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode)
             self.__init__()
@@ -442,8 +443,14 @@ class Script(modules.scripts.Script):
             self.mode = mode
             comprompt = comnegprompt = None
             # SBM matrix mode detection.
+            if not nchangeand and "AND" in p.prompt.upper():
+                p.prompt.replace("AND","BREAK")
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.indexperiment = True
+            elif KEYBRK not in p.prompt.upper():
+                self.active = False
+                unloader(self,p)
+                return
             self.w = p.width
             self.h = p.height
             self.batch_size = p.batch_size
@@ -600,24 +607,27 @@ class Script(modules.scripts.Script):
                 if self.indexperiment:
                     for row in self.aratios:
                         print(f"row : {row.st,row.ed},cell : {[[c.st,c.ed] for c in row.cols]}")
-        else:   
-            if hasattr(self,"handle"):
-                hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
-                del self.handle
-                if hasattr(self,"batch_cond_uncond") : shared.batch_cond_uncond = self.batch_cond_uncond
-            global lactive
-            lactive = False
+        else:
+            unloader(self,p)
         return p
 
-    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,**kwargs):
+    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand,**kwargs):
         global lactive,labug
-        if active and calcmode =="Latent":
+        if self.active and calcmode =="Latent":
             import lora
-            global orig_lora_forward,orig_lora_apply_weights,lactive
+            global orig_lora_forward,orig_lora_apply_weights,lactive, orig_lora_Linear_forward, orig_lora_Conv2d_forward
             if hasattr(lora,"lora_apply_weights"):
                 if self.debug : print("hijack lora_apply_weights")
                 orig_lora_apply_weights = lora.lora_apply_weights
+                orig_lora_Linear_forward = torch.nn.Linear.forward
+                orig_lora_Conv2d_forward = torch.nn.Conv2d.forward
                 lora.lora_apply_weights = lora_apply_weights
+                torch.nn.Linear.forward = lora_Linear_forward
+                torch.nn.Conv2d.forward = lora_Conv2d_forward
+                for l in lora.loaded_loras:
+                    for key in l.modules.keys():
+                        changethedevice(l.modules[key])
+                restoremodel(p)
             elif hasattr(lora,"lora_forward"):
                 if self.debug : print("hijack lora_forward")
                 orig_lora_forward = lora.lora_forward
@@ -630,8 +640,8 @@ class Script(modules.scripts.Script):
 
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
-    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode):
-        if not active:
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode,nchangeand):
+        if not self.active:
             return p
         if self.usecom or self.indexperiment:
             p.prompt = self.orig_all_prompts[0]
@@ -644,25 +654,37 @@ class Script(modules.scripts.Script):
         return p
 
     def postprocess(self, p, processed, *args):
+        if self.active : 
+            with open(os.path.join(paths.data_path, "params.txt"), "w", encoding="utf8") as file:
+                processed = Processed(p, [], p.seed, "")
+                file.write(processed.infotext(p, 0))
+        
         if hasattr(self,"handle"):
             hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
             del self.handle
 
-        with open(os.path.join(paths.data_path, "params.txt"), "w", encoding="utf8") as file:
-            processed = Processed(p, [], p.seed, "")
-            file.write(processed.infotext(p, 0))
-        
+        global orig_lora_Linear_forward, orig_lora_Conv2d_forward,orig_lora_apply_weights,orig_lora_forward
+
         if orig_lora_apply_weights != None :
             import lora
             lora.lora_apply_weights = orig_lora_apply_weights
+            orig_lora_apply_weights = None
 
         if orig_lora_forward != None :
             import lora
             lora.lora_forward = orig_lora_forward
+            orig_lora_forward = None
 
+        if orig_lora_Linear_forward != None :
+            torch.nn.Linear.forward = orig_lora_Linear_forward
+            orig_lora_Linear_forward = None
+
+        if orig_lora_Conv2d_forward != None :
+            torch.nn.Conv2d.forward = orig_lora_Conv2d_forward
+            orig_lora_Conv2d_forward = None
 
 ###################################################
-# Latent Method
+# Latent Method denoise call back
 # Using the AND syntax with shared.batch_cond_uncond = False
 # the U-NET is calculated (the number of prompts divided by AND) + 1 times.
 # This means that the calculation is performed for the area + 1 times.
@@ -729,6 +751,8 @@ class Script(modules.scripts.Script):
                     #print(f"x = {x.size()}f = {r}, b={b}, count = {r + b*areas}, uncon = {x.size()[0]+(b-batch)}")
                     x[a + b*areas, :, :, :] =  x[a + b*areas, :, :, :] * self.filters[a] + x[x.size()[0]+(b-batch), :, :, :] * self.neg_filters[a]
 
+################################################################################
+##### Attention mode 
 
 def hook_forward(self, module):
     def forward(x, context=None, mask=None):
@@ -978,7 +1002,6 @@ def hook_forward(self, module):
 
     return forward
 
-
 def hook_forwards(self, root_module: torch.nn.Module, remove=False):
     for name, module in root_module.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":
@@ -986,6 +1009,8 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
             if remove:
                 del module.forward
 
+############################################################
+##### prompts, tokens
 
 def tokendealer(p):
     ppl = p.prompt.split(KEYBRK)
@@ -1007,7 +1032,6 @@ def tokendealer(p):
         padd = tokens // TOKENS + 1 + padd
     eq = paddp == padd
     return pt, nt, ppt, pnt, eq
-
 
 def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
     aratios = [float(a) for a in aratios.split(",")]
@@ -1078,8 +1102,18 @@ def calcdealer(self, p, calcmode):
     self.divide = p.prompt.count("AND") + 1
     return self, p
 
+def unloader(self,p):
+    if hasattr(self,"handle"):
+        print("unloaded")
+        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
+        del self.handle
+        if hasattr(self,"batch_cond_uncond") : shared.batch_cond_uncond = self.batch_cond_uncond
+    global lactive
+    lactive = False
+    self.active = False
+#############################################################
+##### Preset save and load
 
-### for Latent mode
 def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom, calcmode):
     path_root = scripts.basedir()
     filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
@@ -1116,7 +1150,7 @@ def loadpresets(filepath):
         if not os.path.isfile(filepath):
             try:
                 with open(filepath,mode = 'w',encoding="utf-8") as f:
-                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom"\n')
+                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode"\n')
                     for pr in presets:
                         text = ",".join(pr) + "\n"
                         f.writelines(text)
@@ -1124,9 +1158,8 @@ def loadpresets(filepath):
                 pass
     return presets
 
-
 ######################################################
-#Latent Method
+##### Latent Method
 
 def lora_namer(self,p):
     ldict = {}
@@ -1285,15 +1318,12 @@ def lora_forward(module, input, res):
                 x = res
             else:
                 x = input
-            
+        
             if hasattr(module, 'inference'):
                 res = res + module.inference(x) * scale
             elif hasattr(module, 'up'):
                 res = res + module.up(module.down(x)) * scale
-            else:
-                raise NotImplementedError(
-                    "Your settings, extensions or models are not compatible with each other."
-                )
+
     return res
 
 
@@ -1361,3 +1391,45 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
             print(f'failed to calculate lora weights for layer {lora_layer_name}')
 
         setattr(self, "lora_current_names", wanted_names)
+
+def lora_Linear_forward(self, input):
+    return lora_forward(self, input, torch.nn.Linear_forward_before_lora(self, input))
+
+def lora_Conv2d_forward(self, input):
+    return lora_forward(self, input, torch.nn.Conv2d_forward_before_lora(self, input))
+
+def changethedevice(module):
+    if type(module).__name__ == "LoraUpDownModule":
+        module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
+        module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
+        
+    elif type(module).__name__ == "LoraHadaModule":
+        module.w1a = torch.nn.Parameter(module.w1a.to(devices.device, dtype=torch.float))
+        module.w1b = torch.nn.Parameter(module.w1b.to(devices.device, dtype=torch.float))
+        module.w2a = torch.nn.Parameter(module.w2a.to(devices.device, dtype=torch.float))
+        module.w2b = torch.nn.Parameter(module.w2b.to(devices.device, dtype=torch.float))
+        
+        if module.t1 is not None:
+            module.t1 = torch.nn.Parameter(module.t1.to(devices.device, dtype=torch.float))
+
+        if module.t2 is not None:
+            module.t2 = torch.nn.Parameter(module.t2.to(devices.device, dtype=torch.float))
+        
+    elif type(module).__name__ == "FullModule":
+        module.weight = torch.nn.Parameter(module.weight.to(devices.device, dtype=torch.float))
+    
+    if hasattr(module, 'bias') and module.bias != None:
+        module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
+
+def restoremodel(p):
+    model = p.sd_model.model.diffusion_model
+    for name,module in model.named_modules():
+        if hasattr(module, "lora_weights_backup"):
+            if module.lora_weights_backup is not None:
+                print(type(module.lora_weights_backup))
+                if isinstance(module, torch.nn.MultiheadAttention):
+                    module.in_proj_weight.copy_(module.lora_weights_backup[0])
+                    module.out_proj.weight.copy_(module.lora_weights_backup[1])
+                else:
+                    module.weight.copy_(module.lora_weights_backup)
+                module.lora_weights_backup = None
