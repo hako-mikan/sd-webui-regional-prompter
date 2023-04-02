@@ -72,7 +72,7 @@ Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid
 [figma](https://civitai.com/models/7984/figma-anime-figures) LoRA separated into left and right sides to create.  
 <img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
 
-The web-ui update at the end of March will change the way LoRA is applied, which will significantly increase the generation time. It is not that there is anything wrong with the update, but that it has the effect of reducing the generation time for normal usage, but seems to have the opposite effect on the stage where region-specific adaptation is used. I have tried several countermeasures, but so far no workaround has come to mind.
+~~The web-ui update at the end of March will change the way LoRA is applied, which will significantly increase the generation time. It is not that there is anything wrong with the update, but that it has the effect of reducing the generation time for normal usage, but seems to have the opposite effect on the stage where region-specific adaptation is used. I have tried several countermeasures, but so far no workaround has come to mind.~~
 
 ### Use common prompt
 If this option enabled, first part of the prompt is added to all part.  
@@ -190,7 +190,7 @@ LoRAを分離したい場合こちらを使用して下さい。生成時間は�
 [figma](https://civitai.com/models/7984/figma-anime-figures)LoRAを左右に分離して作成した例。  
 <img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
 
-三月末のweb-uiのアップデートでLoRAの適用方法が変更され、これにより生成時間が大幅に長くなります。アップデートに不具合があるというわけでは無く、普通の使い方をするなら生成時間を短縮する効果がありますが、領域別適応をする段においては逆効果になるようです。いくつか対策を考えてみましたがいまのところ回避策は思い浮かびません。
+~~三月末のweb-uiのアップデートでLoRAの適用方法が変更され、これにより生成時間が大幅に長くなります。アップデートに不具合があるというわけでは無く、普通の使い方をするなら生成時間を短縮する効果がありますが、領域別適応をする段においては逆効果になるようです。いくつか対策を考えてみましたがいまのところ回避策は思い浮かびません。~~
 
 ### Divide mode
 分割方向を指定します。水平、垂直方向が指定できます。
