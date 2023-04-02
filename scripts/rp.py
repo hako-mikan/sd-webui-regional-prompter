@@ -1422,11 +1422,10 @@ def changethedevice(module):
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
 def restoremodel(p):
-    model = p.sd_model.model.diffusion_model
+    model = p.sd_model
     for name,module in model.named_modules():
         if hasattr(module, "lora_weights_backup"):
             if module.lora_weights_backup is not None:
-                print(type(module.lora_weights_backup))
                 if isinstance(module, torch.nn.MultiheadAttention):
                     module.in_proj_weight.copy_(module.lora_weights_backup[0])
                     module.out_proj.weight.copy_(module.lora_weights_backup[1])
