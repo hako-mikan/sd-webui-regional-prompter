@@ -315,6 +315,7 @@ class Script(modules.scripts.Script):
         self.all_negative_prompts = []
         self.imgcount = 0
         self.filters = []
+        self.anded = False
 
     def title(self):
         return "Regional Prompter"
@@ -451,6 +452,8 @@ class Script(modules.scripts.Script):
                 p.prompt = p.prompt.replace("AND",KEYBRK)
                 for i in lange(p.all_prompts):
                     p.all_prompts[i] = p.all_prompts[i].replace("AND",KEYBRK)
+                self.anded = True
+                
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.indexperiment = True
             elif KEYBRK not in p.prompt.upper():
@@ -648,7 +651,7 @@ class Script(modules.scripts.Script):
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode,nchangeand):
         if not self.active:
             return p
-        if self.usecom or self.indexperiment:
+        if self.usecom or self.indexperiment or self.anded:
             p.prompt = self.orig_all_prompts[0]
             p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
         if self.usencom:
