@@ -444,7 +444,7 @@ class Script(modules.scripts.Script):
             comprompt = comnegprompt = None
             # SBM matrix mode detection.
             if not nchangeand and "AND" in p.prompt.upper():
-                p.prompt.replace("AND","BREAK")
+                p.prompt = p.prompt.replace("AND","BREAK")
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.indexperiment = True
             elif KEYBRK not in p.prompt.upper():
@@ -616,7 +616,7 @@ class Script(modules.scripts.Script):
         if self.active and calcmode =="Latent":
             import lora
             global orig_lora_forward,orig_lora_apply_weights,lactive, orig_lora_Linear_forward, orig_lora_Conv2d_forward
-            if hasattr(lora,"lora_apply_weights"):
+            if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
                 if self.debug : print("hijack lora_apply_weights")
                 orig_lora_apply_weights = lora.lora_apply_weights
                 orig_lora_Linear_forward = torch.nn.Linear.forward
@@ -624,10 +624,12 @@ class Script(modules.scripts.Script):
                 lora.lora_apply_weights = lora_apply_weights
                 torch.nn.Linear.forward = lora_Linear_forward
                 torch.nn.Conv2d.forward = lora_Conv2d_forward
+
                 for l in lora.loaded_loras:
                     for key in l.modules.keys():
                         changethedevice(l.modules[key])
                 restoremodel(p)
+
             elif hasattr(lora,"lora_forward"):
                 if self.debug : print("hijack lora_forward")
                 orig_lora_forward = lora.lora_forward
@@ -664,14 +666,12 @@ class Script(modules.scripts.Script):
             del self.handle
 
         global orig_lora_Linear_forward, orig_lora_Conv2d_forward,orig_lora_apply_weights,orig_lora_forward
-
+        import lora
         if orig_lora_apply_weights != None :
-            import lora
             lora.lora_apply_weights = orig_lora_apply_weights
             orig_lora_apply_weights = None
 
         if orig_lora_forward != None :
-            import lora
             lora.lora_forward = orig_lora_forward
             orig_lora_forward = None
 
@@ -684,7 +684,7 @@ class Script(modules.scripts.Script):
             orig_lora_Conv2d_forward = None
 
 ###################################################
-# Latent Method denoise call back
+###### Latent Method denoise call back
 # Using the AND syntax with shared.batch_cond_uncond = False
 # the U-NET is calculated (the number of prompts divided by AND) + 1 times.
 # This means that the calculation is performed for the area + 1 times.
@@ -821,13 +821,10 @@ def hook_forward(self, module):
                 # if self.usebase:
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
-            
-            indlast = False
+
             sumout = 0
 
-
             if self.debug : print(f"tokens : {tll},pn : {pn}")
-
             if self.debug : print([r for r in self.aratios])
 
             for drow in self.aratios:
@@ -1111,6 +1108,7 @@ def unloader(self,p):
     global lactive
     lactive = False
     self.active = False
+
 #############################################################
 ##### Preset save and load
 
@@ -1179,18 +1177,18 @@ def lora_namer(self,p):
         for called in calledloras:
             names = names + called.items[0]
             tdict[called.items[0]] = called.items[1]
+
         for key in llist[i].keys():
             if key.split("added_by_lora_block_weight")[0] not in names:
                 llist[i+1][key] = 0
             elif key in names:
                 llist[i+1][key] = float(tdict[key])
+                
     global regioner
     regioner.te_llist = llist
     regioner.u_llist = llist[1:]
     regioner.u_llist.append(llist[0])
-    regioner.l_count = len(loraclass.loaded_loras)
     regioner.ndeleter()
-    regioner.loras = loraclass.loaded_loras
     if self.debug:
         print(regioner.te_llist)
         print(regioner.u_llist)
@@ -1244,6 +1242,9 @@ def makefilters(c,h,w,masks,mode,usebase,bratios,xy):
 
     return filters
 
+######################################################
+##### Latent Method LoRA changer
+
 TE_START_NAME = "transformer_text_model_encoder_layers_0_self_attn_q_proj"
 UNET_START_NAME = "diffusion_model_time_embed_0"
 
@@ -1252,13 +1253,9 @@ class LoRARegioner:
     def __init__(self):
         self.te_count = 0
         self.u_count = 0
-        self.uc_count = 1
-        self.c_count = 2
         self.te_llist = [{}]
         self.u_llist = [{}]
         self.mlist = {}
-        self.bmlist={}
-        self.batch = 0
 
     def ndeleter(self):
         for key in self.te_llist[0].keys():
@@ -1314,8 +1311,11 @@ def lora_forward(module, input, res):
             else:
                 scale = lora_m.multiplier * (module.alpha / module.dim if module.alpha else 1.0)
             
-            if shared.opts.lora_apply_to_outputs and res.shape == input.shape:
-                x = res
+            if hasattr(shared.opts,"lora_apply_to_outputs"):
+                if shared.opts.lora_apply_to_outputs and res.shape == input.shape:
+                    x = res
+                else:
+                    x = input    
             else:
                 x = input
         
@@ -1325,7 +1325,6 @@ def lora_forward(module, input, res):
                 res = res + module.up(module.down(x)) * scale
 
     return res
-
 
 def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.MultiheadAttention]):
     import lora as loramodule
@@ -1391,6 +1390,9 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
             print(f'failed to calculate lora weights for layer {lora_layer_name}')
 
         setattr(self, "lora_current_names", wanted_names)
+
+############################################################
+##### for new lora apply method in web-ui
 
 def lora_Linear_forward(self, input):
     return lora_forward(self, input, torch.nn.Linear_forward_before_lora(self, input))
