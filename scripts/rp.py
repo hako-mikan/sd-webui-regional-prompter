@@ -443,8 +443,14 @@ class Script(modules.scripts.Script):
             self.mode = mode
             comprompt = comnegprompt = None
             # SBM matrix mode detection.
+
+            self.orig_all_prompts = p.all_prompts
+            self.orig_all_negative_prompts = p.all_negative_prompts 
+
             if not nchangeand and "AND" in p.prompt.upper():
-                p.prompt = p.prompt.replace("AND","BREAK")
+                p.prompt = p.prompt.replace("AND",KEYBRK)
+                for i in lange(p.all_prompts):
+                    p.all_prompts[i] = p.all_prompts[i].replace("AND",KEYBRK)
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.indexperiment = True
             elif KEYBRK not in p.prompt.upper():
@@ -466,9 +472,6 @@ class Script(modules.scripts.Script):
                 self.usecom = True
             if KEYCOMM in p.negative_prompt: # Automatic common toggle.
                 self.usencom = True
-
-            self.orig_all_prompts = p.all_prompts
-            self.orig_all_negative_prompts = p.all_negative_prompts 
 
             if hasattr(p,"enable_hr"): # Img2img doesn't have it.
                 self.hr = p.enable_hr
@@ -1402,8 +1405,12 @@ def lora_Conv2d_forward(self, input):
 
 def changethedevice(module):
     if type(module).__name__ == "LoraUpDownModule":
-        module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
-        module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
+        if hasattr(module,"up_model.weight") :
+            module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
+            module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
+        else:
+            module.up.weight = torch.nn.Parameter(module.up.weight.to(devices.device, dtype = torch.float))
+            module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
         
     elif type(module).__name__ == "LoraHadaModule":
         module.w1a = torch.nn.Parameter(module.w1a.to(devices.device, dtype=torch.float))
