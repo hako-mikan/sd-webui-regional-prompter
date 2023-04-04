@@ -7,7 +7,7 @@
 - 垂直/平行方向に分割された領域ごとに異なるプロンプトを指定できます
 
 ## Language control / 言語制御
-ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/master/README.md)
+ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
 ## 更新情報
 - 新機能2D領域を追加しました
