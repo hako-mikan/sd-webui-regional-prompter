@@ -40,6 +40,7 @@ SBM mod: Two dimensional regions (of variable size, NOT a matrix).
 def lange(l):
     return range(len(l))
 
+orig_batch_cond_uncond = shared.batch_cond_uncond
 orig_lora_forward = None
 orig_lora_apply_weights = None
 orig_lora_Linear_forward = None
@@ -453,7 +454,7 @@ class Script(modules.scripts.Script):
                 for i in lange(p.all_prompts):
                     p.all_prompts[i] = p.all_prompts[i].replace("AND",KEYBRK)
                 self.anded = True
-                
+
             if (KEYROW in p.prompt.upper() or KEYCOL in p.prompt.upper() or DELIMROW in aratios):
                 self.indexperiment = True
             elif KEYBRK not in p.prompt.upper():
@@ -463,10 +464,8 @@ class Script(modules.scripts.Script):
             self.w = p.width
             self.h = p.height
             self.batch_size = p.batch_size
-            self.batch_cond_uncond = shared.batch_cond_uncond
             
             self.calcmode = calcmode
-            if not hasattr(self,"batch_cond_uncond") : self.batch_cond_uncond = shared.batch_cond_uncond
 
             self.debug = debug
             self.usebase = usebase
@@ -589,7 +588,7 @@ class Script(modules.scripts.Script):
             
             if calcmode == "Attention":
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-                if hasattr(self,"batch_cond_uncond") : shared.batch_cond_uncond = self.batch_cond_uncond
+                shared.batch_cond_uncond = orig_batch_cond_uncond 
             else:
                 if not hasattr(self,"dd_callbacks"):
                     self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
@@ -1110,7 +1109,7 @@ def unloader(self,p):
         print("unloaded")
         hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
         del self.handle
-        if hasattr(self,"batch_cond_uncond") : shared.batch_cond_uncond = self.batch_cond_uncond
+        shared.batch_cond_uncond = orig_batch_cond_uncond 
     global lactive
     lactive = False
     self.active = False
@@ -1408,12 +1407,15 @@ def lora_Conv2d_forward(self, input):
 
 def changethedevice(module):
     if type(module).__name__ == "LoraUpDownModule":
-        if hasattr(module,"up_model.weight") :
+        if hasattr(module,"up_model") :
+            print("up_model")
             module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
             module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
         else:
+            print("weight")
             module.up.weight = torch.nn.Parameter(module.up.weight.to(devices.device, dtype = torch.float))
-            module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
+            if hasattr(module.down, "weight"):
+                module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
         
     elif type(module).__name__ == "LoraHadaModule":
         module.w1a = torch.nn.Parameter(module.w1a.to(devices.device, dtype=torch.float))
