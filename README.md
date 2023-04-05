@@ -46,16 +46,19 @@ This extention is enabled only if "Active" is toggled.
 ### Prompt
 Prompts for different regions are separated by `BREAK` keywords. 
 Negative prompts can also be set for each area by separating them with `BREAK`, but if `BREAK` is not entered, the same negative prompt will be set for all areas.
+
 Using `ADDROW` or `ADDCOL` anywhere in the prompt will automatically activate [2D region mode](#2d-region-assignment-experimental-function).
 
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
 When using base prompt, the first prompt separated by `BREAK` is treated as the base prompt.
 Therefore, when this option is enabled, one extra `BREAK`-separated prompt is required compared to Divide ratios.
+
 Automatically turned on when `ADDBASE` is entered.
 
 ### Divide ratio
 If you enter 1,1,1, the image will be divided into three equal regions (33,3%, 33,3%, 33,3%); if you enter 3,1,1, the image will be divided into 60%, 20%, and 20%. Fractions can also be entered: 0.1,0.1,0.1 is equivalent to 1,1,1.
+
 Using a `;` separator will automatically activate 2D region mode.
 
 ### Base ratio
@@ -79,6 +82,7 @@ Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid
 
 ### Use common prompt
 If this option enabled, first part of the prompt is added to all region parts.
+
 Automatically turned on when `ADDCOMM` is entered.
 ```
 best quality, 20yo lady in garden BREAK
@@ -99,6 +103,7 @@ You can specify a region in two dimensions. Using a special separator (`ADDCOL/A
 In this mode, the direction selected in `Divide mode` changes which separator is applied first:
 - In `Horizontal` mode, the image is first split to rows with `ADDROW` or `;` in Divide ratio, then each row is split to regions with `ADDCOL` or `,` in Divide ratio.
 - In `Vertical` mode, the image is first split to columns with `ADDCOL` or `,` in Divide ratio, then each column is split to regions with `ADDROW` or `;` in Divide ratio.
+
 In any case, the conversion of prompt clauses to rows and columns is from top to bottom, left to right.
 
 ```
