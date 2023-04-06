@@ -256,10 +256,14 @@ def repeat_div(x,y):
         y = y - 1
     return x
 
-def main_forward(module,x,context,mask,divide):
+def main_forward(module,x,context,mask,divide,isvanilla = False):
     
     # Forward.
-    h = module.heads // divide
+    h = module.heads
+    if isvanilla: # SBM Ddim / plms have the context split ahead along with x.
+        pass
+    else: # SBM I think divide may be redundant.
+        h = h // divide
     q = module.to_q(x)
     context = atm.default(context, x)
     k = module.to_k(context)
@@ -445,7 +449,8 @@ class Script(modules.scripts.Script):
             self.active = True
             self.mode = mode
             comprompt = comnegprompt = None
-            # SBM matrix mode detection.
+            # SBM ddim / plms detection.
+            self.isvanilla = p.sampler_name in ["DDIM", "PLMS"]
 
             self.orig_all_prompts = p.all_prompts
             self.orig_all_negative_prompts = p.all_negative_prompts 
@@ -646,7 +651,7 @@ class Script(modules.scripts.Script):
             lactive = True
             labug = self.debug
             self.lora_applied = True
-            self = lora_namer(self,p)
+            lora_namer(self,p)
         else:
             lactive = False
 
@@ -827,7 +832,7 @@ def hook_forward(self, module):
             if self.usebase:
                 context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
                 i = i + 1 + self.basebreak
-                out = main_forward(module, x, context, mask, divide)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla)
 
                 if len(self.nt) == 1 and not pn:
                     if self.debug : print("return out for NP")
@@ -851,7 +856,7 @@ def hook_forward(self, module):
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
-                    out = main_forward(module, x, context, mask, divide)
+                    out = main_forward(module, x, context, mask, divide, self.isvanilla)
                     if self.debug : print(f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
                     if len(self.nt) == 1 and not pn:
                         if self.debug : print("return out for NP")
@@ -921,7 +926,7 @@ def hook_forward(self, module):
                 else:
                     area = self.aratios[i]
 
-                out = main_forward(module, x, context, mask, divide)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla)
 
                 if len(self.nt) == 1 and not pn:
                     if self.debug : print("return out for NP")
@@ -994,14 +999,30 @@ def hook_forward(self, module):
                 ox = regsepcalc(x, contexts, mask, self.pn, 1)
         else:
             if self.debug : print("same token size and different divisions")
-            px, nx = x.chunk(2)
-            if self.indexperiment:
-                opx = matsepcalc(px, contexts, mask, True, 2)
-                onx = matsepcalc(nx, contexts, mask, False, 2)
+            # SBM You get 2 layers of x, context for pos/neg.
+            # Each should be forwarded separately, pairing them up together.
+            if self.isvanilla: # SBM Ddim reverses cond/uncond.
+                nx, px = x.chunk(2)
+                conn,conp = contexts.chunk(2)
             else:
-                opx = regsepcalc(px, contexts, mask, True, 2)
-                onx = regsepcalc(nx, contexts, mask, False, 2)
-            ox = torch.cat([opx, onx])  
+                px, nx = x.chunk(2)
+                conp,conn = contexts.chunk(2)
+            if self.indexperiment:
+                # SBM I think division may have been an incorrect patch.
+                # But I'm not sure, haven't tested beyond DDIM / PLMS.
+                opx = matsepcalc(px, conp, mask, True, 2)
+                onx = matsepcalc(nx, conn, mask, False, 2)
+                # opx = matsepcalc(px, contexts, mask, True, 2)
+                # onx = matsepcalc(nx, contexts, mask, False, 2)
+            else:
+                opx = regsepcalc(px, conp, mask, True, 2)
+                onx = regsepcalc(nx, conn, mask, False, 2)
+                # opx = regsepcalc(px, contexts, mask, True, 2)
+                # onx = regsepcalc(nx, contexts, mask, False, 2)
+            if self.isvanilla: # SBM Ddim reverses cond/uncond.
+                ox = torch.cat([onx, opx])
+            else:
+                ox = torch.cat([opx, onx])  
 
         self.count += 1
 
