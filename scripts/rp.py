@@ -472,6 +472,7 @@ class Script(modules.scripts.Script):
             self.usecom = usecom
             if KEYCOMM in p.prompt: # Automatic common toggle.
                 self.usecom = True
+            self.usencom = usencom
             if KEYCOMM in p.negative_prompt: # Automatic common toggle.
                 self.usencom = True
 
@@ -713,7 +714,9 @@ class Script(modules.scripts.Script):
             xt = params.x.clone()
             ict = params.image_cond.clone()
             st =  params.sigma.clone()
-            ct =  params.text_cond.clone()
+            # SBM Stale version workaround.
+            if hasattr(params,"text_cond"):
+                ct =  params.text_cond.clone()
             areas = xt.shape[0] // self.batch_size -1
 
             for a in range(areas):
@@ -721,7 +724,9 @@ class Script(modules.scripts.Script):
                     params.x[b+a*self.batch_size] = xt[a + b * areas]
                     params.image_cond[b+a*self.batch_size] = ict[a + b * areas]
                     params.sigma[b+a*self.batch_size] = st[a + b * areas]
-                    params.text_cond[b+a*self.batch_size] = ct[a + b * areas]
+                    # SBM Stale version workaround.
+                    if hasattr(params,"text_cond"):
+                        params.text_cond[b+a*self.batch_size] = ct[a + b * areas]
 
     def denoised_callback(self, params: CFGDenoisedParams):
         if lactive:
