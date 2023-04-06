@@ -317,6 +317,7 @@ class Script(modules.scripts.Script):
         self.imgcount = 0
         self.filters = []
         self.anded = False
+        self.lora_applied = False
 
     def title(self):
         return "Regional Prompter"
@@ -619,7 +620,9 @@ class Script(modules.scripts.Script):
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand,**kwargs):
         global lactive,labug
-        if self.active and calcmode =="Latent":
+        if self.lora_applied: # SBM Don't override orig twice on batch calls.
+            pass
+        elif self.active and calcmode =="Latent":
             import lora
             global orig_lora_forward,orig_lora_apply_weights,lactive, orig_lora_Linear_forward, orig_lora_Conv2d_forward
             if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
@@ -642,6 +645,7 @@ class Script(modules.scripts.Script):
                 lora.lora_forward = lora_forward
             lactive = True
             labug = self.debug
+            self.lora_applied = True
             self = lora_namer(self,p)
         else:
             lactive = False
@@ -1118,6 +1122,7 @@ def unloader(self,p):
     global lactive
     lactive = False
     self.active = False
+    self.lora_applied = False
 
 #############################################################
 ##### Preset save and load
