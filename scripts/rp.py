@@ -831,6 +831,11 @@ def hook_forward(self, module):
             outb = None
             if self.usebase:
                 context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+                # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
+                cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
+                if cnet_ext > 0:
+                    context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
+                    
                 i = i + 1 + self.basebreak
                 out = main_forward(module, x, context, mask, divide, self.isvanilla)
 
@@ -852,6 +857,11 @@ def hook_forward(self, module):
                 for dcell in drow.cols:
                     # Grabs a set of tokens depending on number of unrelated breaks.
                     context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+                    # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
+                    cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
+                    if cnet_ext > 0:
+                        context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
+                        
                     if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
@@ -917,6 +927,11 @@ def hook_forward(self, module):
 
             for i, tl in enumerate(tll):
                 context = contexts[:, tl[0] * TOKENSCON : tl[1] * TOKENSCON, :]
+                # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
+                cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
+                if cnet_ext > 0:
+                    context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
+                
                 if self.debug : print(f"tokens : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
 
                 if self.usebase:
