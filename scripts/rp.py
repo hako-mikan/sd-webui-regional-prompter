@@ -503,8 +503,8 @@ class Script(modules.scripts.Script):
             # SBM ddim / plms detection.
             self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
 
-            self.orig_all_prompts = p.all_prompts
-            self.orig_all_negative_prompts = p.all_negative_prompts 
+            self.orig_all_prompts = p.all_prompts[:]
+            self.orig_all_negative_prompts = p.all_negative_prompts[:]
 
             if not nchangeand and "AND" in p.prompt.upper():
                 p.prompt = p.prompt.replace("AND",KEYBRK)
