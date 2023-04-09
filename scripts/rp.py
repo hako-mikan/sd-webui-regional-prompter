@@ -343,6 +343,16 @@ class Script(modules.scripts.Script):
     def show(self, is_img2img):
         return modules.scripts.AlwaysVisible
 
+    infotext_fields = None
+    """if set in ui(), this is a list of pairs of gradio component + text; the text will be used when
+    parsing infotext to set the value for the component; see ui.py's txt2img_paste_fields for an example
+    """
+
+    paste_field_names = []
+    """if set in ui(), this is a list of names of infotext fields; the fields will be sent through the
+    various "Send to <X>" buttons when clicked
+    """
+
     def ui(self, is_img2img):
         path_root = scripts.basedir()
         filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
@@ -383,6 +393,21 @@ class Script(modules.scripts.Script):
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
             settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode]
         
+        self.infotext_fields = [
+                (active, "RP Active"),
+                (mode, "RP Divide mode"),
+                (calcmode, "RP Calc Mode"),
+                (ratios, "RP Ratios"),
+                (baseratios, "RP Base Ratios"),
+                (usebase, "RP Use Base"),
+                (usecom, "RP Use Common"),
+                (usencom, "RP Use Ncommon"),
+                (nchangeand,"RP Change AND"),
+        ]
+
+        for _,name in self.infotext_fields:
+            self.paste_field_names.append(name)
+
         def setpreset(select):
             presets = loadpresets(filepath)
             preset = presets[select]
@@ -458,6 +483,18 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand):
         if active:
+            p.extra_generation_params.update({
+                "RP Active":active,
+                "RP Divide mode":mode,
+                "RP Calc Mode":calcmode,
+                "RP Ratios": aratios,
+                "RP Base Ratios": bratios,
+                "RP Use Base":usebase,
+                "RP Use Common":usecom,
+                "RP Use Ncommon": usencom,
+                "RP Change AND" : nchangeand
+                    })
+
             savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode)
             self.__init__()
             self.active = True
@@ -681,7 +718,6 @@ class Script(modules.scripts.Script):
             p.negative_prompt = self.orig_all_negative_prompts[0]
             p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
         self.imgcount += 1
-        p.extra_generation_params["Regional Prompter"] = f"mode:{mode},divide ratio : {aratios}, Use base : {self.usebase}, Base ratio : {bratios}, Use common : {self.usecom}, Use N-common : {self.usencom}"
         return p
 
     def postprocess(self, p, processed, *args):
