@@ -67,7 +67,7 @@ TOKENSCON = 77
 TOKENS = 75
 fidentity = lambda x: x
 fcountbrk = lambda x: x.count(KEYBRK)
-ffloat = lambda x: float(x)
+#ffloat = lambda x: float(x)
 fint = lambda x: int(x)
 fspace = lambda x: " {} ".format(x)
 
@@ -87,6 +87,19 @@ class RegionRow():
         self.st = st # Range for the row.
         self.ed = ed
         self.cols = cols # List of cells.
+
+def floatdef(x, vdef):
+    """Attempt conversion to float, use default value on error.
+    
+    Mainly for empty ratios, double commas.
+    """
+    try:
+        return float(x)
+    except ValueError:
+        print("'{}' is not a number, converted to {}".format(x,vdef))
+        return vdef
+    
+ffloatd = lambda c: (lambda x: floatdef(x,c))
 
 def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None, indflip = False):
     """Split string to 2d list (ie L2) per row and col keys.
@@ -108,7 +121,8 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None,
     There MUST be at least one value for row, one value for col when singles is on;
     to prevent errors, the row value is copied to col if it's alone (shouldn't affect results).
     Singles still respects base broadcast rules, and repeats its own last value.
-    The fmap function is applied to each cell before insertion to L2.
+    The fmap function is applied to each cell before insertion to L2;
+    if it fails, a default value is used.
     If flipped, the keyword for columns is applied before rows.
     TODO: Needs to be a case insensitive split. Use re.split.
     """
@@ -291,7 +305,7 @@ def isfloat(t):
     try:
         float(t)
         return True
-    except:
+    except Exception:
         return False
 
 class Script(modules.scripts.Script):
@@ -399,7 +413,7 @@ class Script(modules.scripts.Script):
                 return o
             for rc in aratios:
                 rc = rc.split(",")
-                rc = [float(r) for r in rc]
+                rc = [floatdef(r,1) for r in rc]
                 if len(rc) == 1 : rc = [rc[0]]*2
                 ocells.append(rc[0])
                 icells.append(startend(rc[1:]))
@@ -521,15 +535,15 @@ class Script(modules.scripts.Script):
                     lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
                     # Standard ratios, split to rows and cols.
                     (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
-                                                    indsingles = True, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
+                                                    indsingles = True, fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
                     # More like "bweights", applied per cell only.
-                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks)
+                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
                 else:
                     breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloat, indflip = indflip)
+                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloatd(1), indflip = indflip)
                     # Cannot determine which breaks matter.
                     lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
-                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloat, basestruct = lbreaks, indflip = indflip)
+                    bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
                     # If insufficient breaks, try to broadcast prompt - a bit dumb.
                     breaks = fcountbrk(mainprompt)
                     lastprompt = mainprompt.rsplit(KEYBRK)[-1]
@@ -1081,7 +1095,7 @@ def tokendealer(p):
     return pt, nt, ppt, pnt, eq
 
 def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
-    aratios = [float(a) for a in aratios.split(",")]
+    aratios = [floatdef(a,1) for a in aratios.split(",")]
     aratios = [a / sum(aratios) for a in aratios]
 
     for i, a in enumerate(aratios):
@@ -1103,8 +1117,8 @@ def promptdealer(self, p, aratios, bratios, usebase, usecom, usencom):
 
     self.aratios = aratios_o
     try:
-        self.bratios = [float(b) for b in bratios.split(",")]
-    except:
+        self.bratios = [floatdef(b,0) for b in bratios.split(",")]
+    except Exception:
         self.bratios = [0]
 
     if divide > len(self.bratios):
@@ -1203,7 +1217,7 @@ def loadpresets(filepath):
                     for pr in presets:
                         text = ",".join(pr) + "\n"
                         f.writelines(text)
-            except:
+            except Exception:
                 pass
     return presets
 
