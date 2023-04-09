@@ -450,7 +450,7 @@ class Script(modules.scripts.Script):
             self.mode = mode
             comprompt = comnegprompt = None
             # SBM ddim / plms detection.
-            self.isvanilla = p.sampler_name in ["DDIM", "PLMS"]
+            self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
 
             self.orig_all_prompts = p.all_prompts
             self.orig_all_negative_prompts = p.all_negative_prompts 
