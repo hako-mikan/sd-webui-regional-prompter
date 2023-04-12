@@ -3,7 +3,6 @@ from typing import Union
 from matplotlib.style import available
 import PIL
 import inspect
-import random
 import copy
 from regex import R
 import torch
@@ -66,7 +65,7 @@ NLN = "\n"
 #MATMODE = "Matrix"
 TOKENSCON = 77
 TOKENS = 75
-MCOLOR = 256
+MCOLOUR = 256
 DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
 ("out",False): KEYROW,
 ("in",False): KEYCOL,
@@ -78,7 +77,7 @@ fcountbrk = lambda x: x.count(KEYBRK)
 #ffloat = lambda x: float(x)
 fint = lambda x: int(x)
 fspace = lambda x: " {} ".format(x)
-fcolourise = lambda: [random.randint(0,MCOLOR),random.randint(0,MCOLOR),random.randint(0,MCOLOR)]
+fcolourise = lambda: np.random.randint(0,MCOLOUR,size = 3)
 
 class RegionCell():
     """Cell used to split a layer to single prompts."""
