@@ -1286,9 +1286,10 @@ def lora_namer(self,p):
                 llist[i+1][key] = float(tdict[key])
                 
     global regioner
+    u_llist = [d.copy() for d in llist[1:]]
+    u_llist.append(llist[0].copy())
     regioner.te_llist = llist
-    regioner.u_llist = llist[1:]
-    regioner.u_llist.append(llist[0])
+    regioner.u_llist = u_llist
     regioner.ndeleter()
     if self.debug:
         print(regioner.te_llist)
