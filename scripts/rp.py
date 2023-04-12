@@ -62,14 +62,23 @@ KEYCOMM = "ADDCOMM"
 KEYBRK = "BREAK"
 DELIMROW = ";"
 DELIMCOL = ","
+NLN = "\n"
 #MATMODE = "Matrix"
 TOKENSCON = 77
 TOKENS = 75
+MCOLOR = 256
+DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
+("out",False): KEYROW,
+("in",False): KEYCOL,
+("out",True): KEYCOL,
+("in",True): KEYROW,
+}
 fidentity = lambda x: x
 fcountbrk = lambda x: x.count(KEYBRK)
 #ffloat = lambda x: float(x)
 fint = lambda x: int(x)
 fspace = lambda x: " {} ".format(x)
+fcolourise = lambda: [random.randint(0,MCOLOR),random.randint(0,MCOLOR),random.randint(0,MCOLOR)]
 
 class RegionCell():
     """Cell used to split a layer to single prompts."""
@@ -425,59 +434,57 @@ class Script(modules.scripts.Script):
             if preset[6] == "" : preset[6] = "Attention"
             return [gr.update(value = pr) for pr in preset]
         
-        def makeimgtmp(aratio,mode,usecom,usebase):
-            aratios = aratio.split(";")
-            if len(aratios) == 1 : aratios[0] = "1," + aratios[0]
+        def makeimgtmp(aratios,mode,usecom,usebase):
+            indflip = (mode == "Vertical")
+            if DELIMROW not in aratios: # Commas only - interpret as 1d.
+                aratios2 = split_l2(aratios, DELIMROW, DELIMCOL, fmap = ffloatd(1), indflip = False)
+                aratios2r = [1]
+            else:
+                (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
+                                                indsingles = True, fmap = ffloatd(1), indflip = indflip)
+            # Change all splitters to breaks.
+            aratios2 = list_percentify(aratios2)
+            aratios2 = list_cumsum(aratios2)
+            aratios2 = list_rangify(aratios2)
+            aratios2r = list_percentify(aratios2r)
+            aratios2r = list_cumsum(aratios2r)
+            aratios2r = list_rangify(aratios2r)
+            
             h = w = 128
-            icells = []
-            ocells = []
-            def startend(lst):
-                o = []
-                s = 0
-                lst = [l/sum(lst) for l in lst]
-                for i in lange(lst):
-                    if i == 0 :o.append([0,lst[0]])
-                    else : o.append([s, s + lst[i]])
-                    s = s + lst[i]
-                return o
-            for rc in aratios:
-                rc = rc.split(",")
-                rc = [floatdef(r,1) for r in rc]
-                if len(rc) == 1 : rc = [rc[0]]*2
-                ocells.append(rc[0])
-                icells.append(startend(rc[1:]))
             fx = np.zeros((h,w, 3), np.uint8)
-            ocells = startend(ocells)
-            print(ocells,icells)
-            for i,ocell in enumerate(ocells):
-                for icell in icells[i]:
-                    if "Horizontal" in mode:
-                        fx[int(h*ocell[0]):int(h*ocell[1]),int(w*icell[0]):int(w*icell[1]),:] = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
-                    elif "Vertical" in mode: 
-                        fx[int(h*icell[0]):int(h*icell[1]),int(w*ocell[0]):int(w*ocell[1]),:] = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
+            # Base image is coloured according to region divisions, roughly.
+            for (i,ocell) in enumerate(aratios2r):
+                for icell in aratios2[i]:
+                    # SBM Creep: Colour by delta so that distinction is more reliable.
+                    if not indflip:
+                        fx[int(h*ocell[0]):int(h*ocell[1]),int(w*icell[0]):int(w*icell[1]),:] = fcolourise()
+                    else:
+                        fx[int(h*icell[0]):int(h*icell[1]),int(w*ocell[0]):int(w*ocell[1]),:] = fcolourise()
             img = PIL.Image.fromarray(fx)
             draw = PIL.ImageDraw.Draw(img)
             c = 0
             def coldealer(col):
                 if sum(col) > 380:return "black"
                 else:return "white"
-            temp = ""
-            for i,ocell in enumerate(ocells):
-                for j,icell in enumerate(icells[i]):
-                    if "Horizontal" in mode:
+            # Add region counters at the top left corner, coloured according to hue.
+            for (i,ocell) in enumerate(aratios2r):
+                for icell in aratios2[i]: 
+                    if not indflip:
                         draw.text((int(w*icell[0]),int(h*ocell[0])),f"{c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]))
-                        if j != len(icells[i]) -1 : temp = temp + " " + KEYCOL + "\n"
-                    elif "Vertical" in mode: 
+                    else: 
                         draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
-                        if j != len(icells[i]) -1 : temp = temp + " " + KEYROW + "\n"
                     c += 1
-                if "Horizontal" in mode and i !=len(ocells)-1 :
-                    temp = temp+ " " + KEYROW + "\n"
-                elif "Vertical" in mode and i !=len(ocells) -1 :
-                    temp = temp + " " + KEYCOL + "\n"
-            if usebase : temp = " " + KEYBASE + "\n" +temp
-            if usecom : temp = " " + KEYCOMM + "\n" +temp
-            return img,gr.update(value = temp)
+            
+            # Create ROW+COL template from regions.
+            txtkey = fspace(DKEYINOUT[("in", indflip)]) + NLN  
+            lkeys = [txtkey.join([""] * len(cell)) for cell in aratios2]
+            txtkey = fspace(DKEYINOUT[("out", indflip)]) + NLN
+            template = txtkey.join(lkeys) 
+            if usebase:
+                template = fspace(KEYBASE) + NLN + template
+            if usecom:
+                template = fspace(KEYCOMM) + NLN + template
+            return img,gr.update(value = template)
 
         maketemp.click(fn=makeimgtmp, inputs =[ratios,mode,usecom,usebase],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
@@ -575,9 +582,18 @@ class Script(modules.scripts.Script):
                     breaks = mainprompt.count(KEYROW) + mainprompt.count(KEYCOL) + int(self.usebase)
                     # Prompt anchors, count breaks between special keywords.
                     lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
-                    # Standard ratios, split to rows and cols.
-                    (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
-                                                    indsingles = True, fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
+                    if (DELIMROW not in aratios
+                    and (KEYROW in mainprompt.upper()) != (KEYCOL in mainprompt.upper())):
+                        # By popular demand, 1d integrated into 2d.
+                        # This works by shoving an additional placeholder value and not flipping,
+                        # allowing any sort of overflow.
+                        # Only applies when using just ADDROW / ADDCOL keys.
+                        aratios = "1," + aratios
+                        (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
+                                            fmap = ffloatd(1), basestruct = lbreaks, indflip = False)
+                    else: # Standard ratios, split to rows and cols.
+                        (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
+                                                        fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
                     # More like "bweights", applied per cell only.
                     bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
                 else:
