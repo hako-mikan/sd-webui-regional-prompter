@@ -374,6 +374,8 @@ class Script(modules.scripts.Script):
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
+                ldiste = gr.Checkbox(value=False, label="disable LoRA in negative textencoder",interactive=True,elem_id="RP_usecommon")
+                ldisu = gr.Checkbox(value=False, label="disable LoRA in negative U-net",interactive=True,elem_id="RP_usecommon")
             with gr.Row():
                 with gr.Column():
                     maketemp = gr.Button(value="visualize and make template")
@@ -391,7 +393,7 @@ class Script(modules.scripts.Script):
             with gr.Row():
                 nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
-            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode]
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, ldiste, ldisu]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -403,6 +405,8 @@ class Script(modules.scripts.Script):
                 (usecom, "RP Use Common"),
                 (usencom, "RP Use Ncommon"),
                 (nchangeand,"RP Change AND"),
+                (ldiste,"RP LoRA Neg Te off"),
+                (ldisu,"RP LoRA Neg U off"),
         ]
 
         for _,name in self.infotext_fields:
@@ -415,7 +419,7 @@ class Script(modules.scripts.Script):
             def booler(text):
                 return text == "TRUE" or text == "true" or text == "True"
             preset[1],preset[2] = preset[1].replace('"',""),preset[2].replace('"',"")
-            preset[3],preset[4],preset[5] = booler(preset[3]),booler(preset[4]),booler(preset[5])
+            preset[3],preset[4],preset[5],preset[7],preset[8]= booler(preset[3]),booler(preset[4]),booler(preset[5]),booler(preset[7]),booler(preset[8])
             while 7 > len(preset):
                 preset.append("")
             if preset[6] == "" : preset[6] = "Attention"
@@ -479,9 +483,9 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
-        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand]
+        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, ldiste, ldisu]
 
-    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand):
+    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand,ldiste, ldisu):
         if active:
             p.extra_generation_params.update({
                 "RP Active":active,
@@ -492,10 +496,11 @@ class Script(modules.scripts.Script):
                 "RP Use Base":usebase,
                 "RP Use Common":usecom,
                 "RP Use Ncommon": usencom,
-                "RP Change AND" : nchangeand
+                "RP LoRA Neg Te off" : ldiste,
+                "RP LoRA Neg U off" : ldisu,
                     })
 
-            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode)
+            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, ldiste, ldisu)
             self.__init__()
             self.active = True
             self.mode = mode
@@ -674,7 +679,7 @@ class Script(modules.scripts.Script):
             unloader(self,p)
         return p
 
-    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand,**kwargs):
+    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, ldiste, ldisu,**kwargs):
         global lactive,labug
         if self.lora_applied: # SBM Don't override orig twice on batch calls.
             pass
@@ -702,13 +707,13 @@ class Script(modules.scripts.Script):
             lactive = True
             labug = self.debug
             self.lora_applied = True
-            lora_namer(self,p)
+            lora_namer(self,p,ldiste, ldisu)
         else:
             lactive = False
 
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
-    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode,nchangeand):
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode,nchangeand, ldiste, ldisu):
         if not self.active:
             return p
         if self.usecom or self.indexperiment or self.anded:
@@ -1213,13 +1218,13 @@ def unloader(self,p):
 #############################################################
 ##### Preset save and load
 
-def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom, calcmode):
+def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom, calcmode,ldiste,ldisu):
     path_root = scripts.basedir()
     filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
     try:
         with open(filepath,mode = 'r',encoding="utf-8") as f:
             presets = f.readlines()
-            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)}\n'
+            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)},{str(ldiste)},{str(ldisu)}\n'
             written = False
             if name == "lastrun":
                 for i, preset in enumerate(presets):
@@ -1249,7 +1254,7 @@ def loadpresets(filepath):
         if not os.path.isfile(filepath):
             try:
                 with open(filepath,mode = 'w',encoding="utf-8") as f:
-                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode"\n')
+                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode","disable LoRA in negative Textencoder","disable LoRA in negative U-Net"\n')
                     for pr in presets:
                         text = ",".join(pr) + "\n"
                         f.writelines(text)
@@ -1260,7 +1265,7 @@ def loadpresets(filepath):
 ######################################################
 ##### Latent Method
 
-def lora_namer(self,p):
+def lora_namer(self,p, ldiste, ldisu):
     ldict = {}
     import lora as loraclass
     for lora in loraclass.loaded_loras:
@@ -1290,7 +1295,7 @@ def lora_namer(self,p):
     u_llist.append(llist[0].copy())
     regioner.te_llist = llist
     regioner.u_llist = u_llist
-    regioner.ndeleter()
+    regioner.ndeleter(ldiste, ldisu)
     if self.debug:
         print(regioner.te_llist)
         print(regioner.u_llist)
@@ -1359,11 +1364,13 @@ class LoRARegioner:
         self.u_llist = [{}]
         self.mlist = {}
 
-    def ndeleter(self):
-        for key in self.te_llist[0].keys():
-            self.te_llist[0][key] = 0
-        for key in self.u_llist[-1].keys():
-            self.u_llist[-1][key] = 0
+    def ndeleter(self,ldiste, ldisu):
+        if ldiste:
+            for key in self.te_llist[0].keys():
+                self.te_llist[0][key] = 0
+        if ldisu:
+            for key in self.u_llist[-1].keys():
+                self.u_llist[-1][key] = 0
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
@@ -1505,11 +1512,9 @@ def lora_Conv2d_forward(self, input):
 def changethedevice(module):
     if type(module).__name__ == "LoraUpDownModule":
         if hasattr(module,"up_model") :
-            print("up_model")
             module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
             module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
         else:
-            print("weight")
             module.up.weight = torch.nn.Parameter(module.up.weight.to(devices.device, dtype = torch.float))
             if hasattr(module.down, "weight"):
                 module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
