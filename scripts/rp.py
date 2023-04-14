@@ -986,7 +986,7 @@ def hook_forward(self, module):
                             outb_t = outb[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
                                           int(dsw*drow.st) + addout:int(dsw*drow.ed),:].clone()
                             out = out * (1 - dcell.base) + outb_t * dcell.base
-                    if self.debug : print(f"sumer:{sumer},dsw:{dsw},add:{add}")
+                    if self.debug : print(f"sumin:{sumin},sumout:{sumout},dsh:{dsh},dsw:{dsw}")
             
                     v_states.append(out)
                     if self.debug : 
