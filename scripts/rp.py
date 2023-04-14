@@ -66,6 +66,7 @@ NLN = "\n"
 TOKENSCON = 77
 TOKENS = 75
 MCOLOUR = 256
+ATTNSCALE = 8 # Initial image compression in attention layers.
 DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
 ("out",False): KEYROW,
 ("in",False): KEYCOL,
@@ -277,6 +278,34 @@ def repeat_div(x,y):
         x = math.ceil(x / 2)
         y = y - 1
     return x
+
+def split_dims(xs, height, width, **kwargs):
+    """Split an attention layer dimension to height + width.
+    
+    Originally, the estimate was dsh = sqrt(hw_ratio*xs),
+    rounding to the nearest value. But this proved inaccurate.
+    What seems to be the actual operation is as follows:
+    - Divide h,w by 8, rounding DOWN. 
+      (However, webui forces dims to be divisible by 8 unless set explicitly.)
+    - For every new layer (of 4), divide both by 2 and round UP (then back up)
+    - Multiply h*w to yield xs.
+    There is no inverse function to this set of operations,
+    so instead we mimic them sans the multiplication part with orig h+w.
+    The only alternative is brute forcing integer guesses,
+    which might be inaccurate too.
+    No known checkpoints follow a different system of layering,
+    but it's theoretically possible. Please report if encountered.
+    """
+    # OLD METHOD.
+    # scale = round(math.sqrt(height*width/xs))
+    # dsh = round_dim(height, scale)
+    # dsw = round_dim(width, scale) 
+    scale = math.ceil(math.log2(math.sqrt(height * width / xs)))
+    dsh = repeat_div(height,scale)
+    dsw = repeat_div(width,scale)
+    if kwargs.get("debug",False) : print(scale,dsh,dsw,dsh*dsw,xs)
+    
+    return dsh,dsw
 
 def main_forward(module,x,context,mask,divide,isvanilla = False):
     
@@ -531,6 +560,12 @@ class Script(modules.scripts.Script):
                 return
             self.w = p.width
             self.h = p.height
+            if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
+                # Testing shows a round down occurs in model.
+                print("Warning: Nonstandard height / width.")
+                self.h = self.h - self.h % ATTNSCALE
+                self.w = self.w - self.w % ATTNSCALE
+                
             self.batch_size = p.batch_size
             
             self.calcmode = calcmode
@@ -865,24 +900,8 @@ def hook_forward(self, module):
         contexts = context.clone()
         # SBM Matrix mode.
         def matsepcalc(x,contexts,mask,pn,divide):
-            add = 0 # TEMP
-            # Completely independent size calc.
-            # Basically: sqrt(hw_ratio*x.size[1])
-
-            # And I think shape is better than size()?
-            # My guesstimate is that the the formula is a repeated ceil(d/2),
-            # there doesn't seem to be a function to calculate this directly,
-            # but we can either brute force it with distance, 
-            # or assume the model ONLY transforms by x2 at a time.
-            # Repeated ceils may cause the value to veer too greatly from rounding. 
             xs = x.size()[1]
-            # scale = round(math.sqrt(height*width/xs))
-            scale = math.ceil(math.log2(math.sqrt(height * width / xs))) # SBM Assumed halving transpose.
-            
-            # dsh = round_dim(height, scale)
-            # dsw = round_dim(width, scale)
-            dsh = repeat_div(height,scale)
-            dsw = repeat_div(width,scale)
+            (dsh,dsw) = split_dims(xs, height, width, debug = self.debug)
             
             if "Horizontal" in self.mode: # Map columns / rows first to outer / inner.
                 dsout = dsw
@@ -892,8 +911,6 @@ def hook_forward(self, module):
                 dsin = dsw
 
             tll = self.pt if pn else self.nt
-
-            if self.debug : print(scale,dsh,dsw,dsh*dsw,x.size()[1])
             
             # Base forward.
             cad = 0 if self.usebase else 1 # 1 * self.usebase is shorter.
