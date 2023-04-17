@@ -426,10 +426,10 @@ class Script(modules.scripts.Script):
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
             with gr.Row():
-                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
-                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
                 nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
+                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
             settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, lnter, lnur]
         
         self.infotext_fields = [
