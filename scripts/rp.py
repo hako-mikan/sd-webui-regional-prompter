@@ -411,8 +411,6 @@ class Script(modules.scripts.Script):
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
-                ldiste = gr.Checkbox(value=False, label="disable LoRA in negative textencoder",interactive=True,elem_id="RP_usecommon")
-                ldisu = gr.Checkbox(value=False, label="disable LoRA in negative U-net",interactive=True,elem_id="RP_usecommon")
             with gr.Row():
                 with gr.Column():
                     maketemp = gr.Button(value="visualize and make template")
@@ -428,9 +426,11 @@ class Script(modules.scripts.Script):
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
             with gr.Row():
+                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
+                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
                 nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
-            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, ldiste, ldisu]
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, lnter, lnur]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -442,8 +442,8 @@ class Script(modules.scripts.Script):
                 (usecom, "RP Use Common"),
                 (usencom, "RP Use Ncommon"),
                 (nchangeand,"RP Change AND"),
-                (ldiste,"RP LoRA Neg Te off"),
-                (ldisu,"RP LoRA Neg U off"),
+                (lnter,"RP LoRA Neg Te Ratios"),
+                (lnur,"RP LoRA Neg U Ratios"),
         ]
 
         for _,name in self.infotext_fields:
@@ -518,9 +518,9 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
-        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, ldiste, ldisu]
+        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur]
 
-    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand,ldiste, ldisu):
+    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur):
         if active:
             p.extra_generation_params.update({
                 "RP Active":active,
@@ -531,11 +531,11 @@ class Script(modules.scripts.Script):
                 "RP Use Base":usebase,
                 "RP Use Common":usecom,
                 "RP Use Ncommon": usencom,
-                "RP LoRA Neg Te off" : ldiste,
-                "RP LoRA Neg U off" : ldisu,
+                "RP LoRA Neg Te Ratios": lnter,
+                "RP LoRA Neg U Ratios": lnur,
                     })
 
-            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, ldiste, ldisu)
+            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, lnter, lnur)
             self.__init__()
             self.active = True
             self.mode = mode
@@ -729,7 +729,7 @@ class Script(modules.scripts.Script):
             unloader(self,p)
         return p
 
-    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, ldiste, ldisu,**kwargs):
+    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur,**kwargs):
         global lactive,labug
         if self.lora_applied: # SBM Don't override orig twice on batch calls.
             pass
@@ -757,13 +757,13 @@ class Script(modules.scripts.Script):
             lactive = True
             labug = self.debug
             self.lora_applied = True
-            lora_namer(self,p,ldiste, ldisu)
+            lora_namer(self, p, lnter, lnur)
         else:
             lactive = False
 
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
-    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom,calcmode,nchangeand, ldiste, ldisu):
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur):
         if not self.active:
             return p
         if self.usecom or self.indexperiment or self.anded:
@@ -1250,13 +1250,13 @@ def unloader(self,p):
 #############################################################
 ##### Preset save and load
 
-def savepresets(name,mode, ratios, baseratios, usebase,usecom, usencom, calcmode,ldiste,ldisu):
+def savepresets(name,mode, ratios, baseratios, usebase, usecom, usencom, calcmode, lnter, lnur):
     path_root = scripts.basedir()
     filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
     try:
         with open(filepath,mode = 'r',encoding="utf-8") as f:
             presets = f.readlines()
-            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)},{str(ldiste)},{str(ldisu)}\n'
+            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)},{str(lnter)},{str(lnur)}\n'
             written = False
             if name == "lastrun":
                 for i, preset in enumerate(presets):
@@ -1286,7 +1286,7 @@ def loadpresets(filepath):
         if not os.path.isfile(filepath):
             try:
                 with open(filepath,mode = 'w',encoding="utf-8") as f:
-                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode","disable LoRA in negative Textencoder","disable LoRA in negative U-Net"\n')
+                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode","LoRA in negative Textencoder","LoRA in negative U-Net"\n')
                     for pr in presets:
                         text = ",".join(pr) + "\n"
                         f.writelines(text)
@@ -1297,7 +1297,7 @@ def loadpresets(filepath):
 ######################################################
 ##### Latent Method
 
-def lora_namer(self,p, ldiste, ldisu):
+def lora_namer(self,p, lnter, lnur):
     ldict = {}
     import lora as loraclass
     for lora in loraclass.loaded_loras:
@@ -1327,7 +1327,7 @@ def lora_namer(self,p, ldiste, ldisu):
     u_llist.append(llist[0].copy())
     regioner.te_llist = llist
     regioner.u_llist = u_llist
-    regioner.ndeleter(ldiste, ldisu)
+    regioner.ndeleter(lnter, lnur)
     if self.debug:
         print(regioner.te_llist)
         print(regioner.u_llist)
@@ -1396,13 +1396,11 @@ class LoRARegioner:
         self.u_llist = [{}]
         self.mlist = {}
 
-    def ndeleter(self,ldiste, ldisu):
-        if ldiste:
-            for key in self.te_llist[0].keys():
-                self.te_llist[0][key] = 0
-        if ldisu:
-            for key in self.u_llist[-1].keys():
-                self.u_llist[-1][key] = 0
+    def ndeleter(self, lnter, lnur):
+        for key in self.te_llist[0].keys():
+            self.te_llist[0][key] = floatdef(lnter, 0)
+        for key in self.u_llist[-1].keys():
+            self.u_llist[-1][key] = floatdef(lnur, 0)
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
