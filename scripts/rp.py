@@ -1288,7 +1288,8 @@ def initpresets(filepath):
             for pr in lpr:
                 prj = {PRESET_KEYS[i][0]:pr[i] for i,_ in enumerate(PRESET_KEYS)} 
                 lprj.append(prj)
-            json.dump(json.dumps(lprj), f, indent = 2)
+            #json.dump(json.dumps(lprj), f, indent = 2)
+            json.dump(lprj, f, indent = 2)
             return lprj
     except Exception as e:
         return None
@@ -1301,7 +1302,8 @@ def savepresets(*settings):
 
     try:
         with open(filepath, mode='r', encoding="utf-8") as f:
-            presets = json.loads(json.load(f))
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
             pr = {PRESET_KEYS[i][0]:settings[i] for i,_ in enumerate(PRESET_KEYS)}
             written = False
             # if name == "lastrun": # SBM We should check the preset is unique in any case.
@@ -1313,7 +1315,8 @@ def savepresets(*settings):
             if not written:
                 presets.append(pr)
         with open(filepath, mode='w', encoding="utf-8") as f:
-            json.dump(json.dumps(presets), f, indent = 2)
+            # json.dump(json.dumps(presets), f, indent = 2)
+            json.dump(presets, f, indent = 2)
     except Exception as e:
         print(e)
 
@@ -1324,7 +1327,8 @@ def loadpresets(filepath):
     presets = []
     try:
         with open(filepath, encoding="utf-8") as f:
-            presets = json.loads(json.load(f))
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
     except OSError as e:
         print("Init / preset error.")
         presets = initpresets(filepath)
