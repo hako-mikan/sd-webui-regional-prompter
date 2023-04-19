@@ -51,7 +51,7 @@ PRESETS =[
     ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
     ["Horizontal-3", "Horizontal",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
     ["Horizontal-7", "Horizontal",'1,1,1,1,1,1,1',"0.2",True,False,False,"Attention",False,"0","0"],
-    ["Twod-2-1", "Horizontal",'1,2,3;1,1',"0.2",True,False,False,"Attention",False,"0","0"],
+    ["Twod-2-1", "Horizontal",'1,2,3;1,1',"0.2",False,False,False,"Attention",False,"0","0"],
 ]
 # SBM Keywords and delimiters for region breaks, following matlab rules.
 # BREAK keyword is now passed through,  
