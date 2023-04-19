@@ -89,6 +89,10 @@ class RegionCell():
         self.base = base # How much of the base prompt is applied (difference).
         self.breaks = breaks # How many unrelated breaks the prompt contains.
         
+    def __repr__(self):
+        """Debug print."""
+        return "({:.2f}:{:.2f})".format(self.st,self.ed) 
+        
 class RegionRow():
     """Row containing cell refs and its own ratio range."""
     def __init__(self, st, ed, cols):
@@ -96,6 +100,10 @@ class RegionRow():
         self.st = st # Range for the row.
         self.ed = ed
         self.cols = cols # List of cells.
+        
+    def __repr__(self):
+        """Debug print."""
+        return "Outer ({:.2f}:{:.2f}), contains {}".format(self.st, self.ed, self.cols) + NLN
 
 def floatdef(x, vdef):
     """Attempt conversion to float, use default value on error.
@@ -531,6 +539,7 @@ class Script(modules.scripts.Script):
                 "RP Use Base":usebase,
                 "RP Use Common":usecom,
                 "RP Use Ncommon": usencom,
+                "RP Change AND" : nchangeand,
                 "RP LoRA Neg Te Ratios": lnter,
                 "RP LoRA Neg U Ratios": lnur,
                     })
@@ -619,12 +628,17 @@ class Script(modules.scripts.Script):
                     if (DELIMROW not in aratios
                     and (KEYROW in mainprompt.upper()) != (KEYCOL in mainprompt.upper())):
                         # By popular demand, 1d integrated into 2d.
-                        # This works by shoving an additional placeholder value and not flipping,
-                        # allowing any sort of overflow.
-                        # Only applies when using just ADDROW / ADDCOL keys.
-                        aratios = "1," + aratios
+                        # This works by either adding a single row value (inner),
+                        # or setting flip to the reverse (outer).
+                        # Only applies when using just ADDROW / ADDCOL keys, and commas in ratio.
+                        indflip2 = False
+                        if (KEYROW in mainprompt.upper()) == indflip:
+                            aratios = "1" + DELIMCOL + aratios
+                        else:
+                            indflip2 = True
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
-                                            fmap = ffloatd(1), basestruct = lbreaks, indflip = False)
+                                            fmap = ffloatd(1), basestruct = lbreaks,
+                                            indflip = indflip2)
                     else: # Standard ratios, split to rows and cols.
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
                                                         fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
@@ -719,12 +733,10 @@ class Script(modules.scripts.Script):
 
             print(f"pos tokens : {ppt}, neg tokens : {pnt}")
             if debug : 
-                print(f"mode : {self.calcmode}\ndivide : {mode}\nratios : {aratios}\nusebase : {self.usebase}")
+                print(f"mode : {self.calcmode}\ndivide : {mode}\nusebase : {self.usebase}")
                 print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.indexperiment}")
-                print(f"divide : {self.divide}\neq : {self.eq}")
-                if self.indexperiment:
-                    for row in self.aratios:
-                        print(f"row : {row.st,row.ed},cell : {[[c.st,c.ed] for c in row.cols]}")
+                print(f"divide : {self.divide}\neq : {self.eq}\n")
+                print(f"ratios : {self.aratios}\n")
         else:
             unloader(self,p)
         return p
@@ -1354,7 +1366,7 @@ def makefilters(c,h,w,masks,mode,usebase,bratios,xy):
                         fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1 - dcell.base
                         x0[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = dcell.base
                     else:
-                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1  
+                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1  
                 filters.append(fx)
                 i +=1
     else:
