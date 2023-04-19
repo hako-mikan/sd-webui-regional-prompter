@@ -628,16 +628,17 @@ class Script(modules.scripts.Script):
                     if (DELIMROW not in aratios
                     and (KEYROW in mainprompt.upper()) != (KEYCOL in mainprompt.upper())):
                         # By popular demand, 1d integrated into 2d.
-                        # This works by shoving an additional placeholder value and not flipping,
-                        # allowing any sort of overflow.
+                        # This works by either adding a single row value (inner),
+                        # or setting flip to the reverse (outer).
                         # Only applies when using just ADDROW / ADDCOL keys, and commas in ratio.
-                        # Also need to change delim, otherwise will take half the values.
-                        aratios = "1" + DELIMCOL + aratios
-                        if KEYROW in mainprompt.upper():
-                            aratios = aratios.replace(DELIMCOL,DELIMROW)
+                        indflip2 = False
+                        if (KEYROW in mainprompt.upper()) == indflip:
+                            aratios = "1" + DELIMCOL + aratios
+                        else:
+                            indflip2 = True
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
                                             fmap = ffloatd(1), basestruct = lbreaks,
-                                            indflip = KEYROW in mainprompt.upper())
+                                            indflip = indflip2)
                     else: # Standard ratios, split to rows and cols.
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
                                                         fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
@@ -1365,7 +1366,7 @@ def makefilters(c,h,w,masks,mode,usebase,bratios,xy):
                         fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1 - dcell.base
                         x0[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = dcell.base
                     else:
-                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1  
+                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1  
                 filters.append(fx)
                 i +=1
     else:
