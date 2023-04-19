@@ -630,10 +630,14 @@ class Script(modules.scripts.Script):
                         # By popular demand, 1d integrated into 2d.
                         # This works by shoving an additional placeholder value and not flipping,
                         # allowing any sort of overflow.
-                        # Only applies when using just ADDROW / ADDCOL keys.
-                        aratios = "1," + aratios
+                        # Only applies when using just ADDROW / ADDCOL keys, and commas in ratio.
+                        # Also need to change delim, otherwise will take half the values.
+                        aratios = "1" + DELIMCOL + aratios
+                        if KEYROW in mainprompt.upper():
+                            aratios = aratios.replace(DELIMCOL,DELIMROW)
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
-                                            fmap = ffloatd(1), basestruct = lbreaks, indflip = False)
+                                            fmap = ffloatd(1), basestruct = lbreaks,
+                                            indflip = KEYROW in mainprompt.upper())
                     else: # Standard ratios, split to rows and cols.
                         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
                                                         fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
