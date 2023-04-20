@@ -17,7 +17,7 @@ import ldm.modules.attention as atm
 from modules import shared,scripts,extra_networks,devices,paths
 from modules.processing import Processed
 from modules.script_callbacks import CFGDenoisedParams, on_cfg_denoised ,CFGDenoiserParams,on_cfg_denoiser
-
+import json # Presets.
 
 #'"name","mode","divide ratios,"use base","baseratios","usecom","usencom",\n'
 """
@@ -48,9 +48,10 @@ lactive = False
 labug =False
 
 PRESETS =[
-    ["Vertical-3", "Vertical",'"1,1,1"',"","False","False","False"],
-    ["Horizontal-3", "Horizontal",'"1,1,1"',"","False","False","False"],
-    ["Horizontal-7", "Horizontal",'"1,1,1,1,1,1,1"',"0.2","True","False","False"],
+    ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
+    ["Horizontal-3", "Horizontal",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
+    ["Horizontal-7", "Horizontal",'1,1,1,1,1,1,1',"0.2",True,False,False,"Attention",False,"0","0"],
+    ["Twod-2-1", "Horizontal",'1,2,3;1,1',"0.2",False,False,False,"Attention",False,"0","0"],
 ]
 # SBM Keywords and delimiters for region breaks, following matlab rules.
 # BREAK keyword is now passed through,  
@@ -79,6 +80,26 @@ fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 fspace = lambda x: " {} ".format(x)
 fcolourise = lambda: np.random.randint(0,MCOLOUR,size = 3)
+# Json formatters.
+fjstr = lambda x: x.strip()
+#fjbool = lambda x: (x.upper() == "TRUE" or x.upper() == "T")
+fjbool = lambda x: x # Json can store booleans reliably.
+
+# (json_name, value_format, default)
+# If default = none then will use current gradio value. 
+PRESET_KEYS = [
+("name",fjstr,"") , # Name is special, preset's key.
+("mode", fjstr, None) ,
+("ratios", fjstr, None) ,
+("baseratios", fjstr, None) ,
+("usebase", fjbool, None) ,
+("usecom", fjbool, False) ,
+("usencom", fjbool, False) ,
+("calcmode", fjstr, "Attention") , # Generation mode.
+("nchangeand", fjbool, False) ,
+("lnter", fjstr, "0") ,
+("lnur", fjstr, "0") ,
+]
 
 class RegionCell():
     """Cell used to split a layer to single prompts."""
@@ -400,11 +421,11 @@ class Script(modules.scripts.Script):
 
     def ui(self, is_img2img):
         path_root = scripts.basedir()
-        filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
+        filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.json")
 
-        presets=[]
+        presets = []
 
-        presets  = loadpresets(filepath)
+        presets = loadpresets(filepath)
 
         with gr.Accordion("Regional Prompter", open=False):
             with gr.Row():
@@ -428,7 +449,7 @@ class Script(modules.scripts.Script):
 
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
-                    availablepresets = gr.Dropdown(label="Presets", choices=[pr[0] for pr in presets], type="index")
+                    availablepresets = gr.Dropdown(label="Presets", choices=[pr["name"] for pr in presets], type="index")
                     applypresets = gr.Button(value="Apply Presets",variant='primary',elem_id="RP_applysetting")
                 with gr.Row():
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
@@ -438,7 +459,7 @@ class Script(modules.scripts.Script):
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, lnter, lnur]
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -460,14 +481,10 @@ class Script(modules.scripts.Script):
         def setpreset(select):
             presets = loadpresets(filepath)
             preset = presets[select]
-            preset = preset[1:]
-            def booler(text):
-                return text == "TRUE" or text == "true" or text == "True"
-            preset[1],preset[2] = preset[1].replace('"',""),preset[2].replace('"',"")
-            preset[3],preset[4],preset[5],preset[7],preset[8]= booler(preset[3]),booler(preset[4]),booler(preset[5]),booler(preset[7]),booler(preset[8])
-            while 7 > len(preset):
-                preset.append("")
-            if preset[6] == "" : preset[6] = "Attention"
+            preset = [fmt(preset.get(k, vdef)) for (k,fmt,vdef) in PRESET_KEYS]
+            preset = preset[1:] # Remove name.
+            # TODO: Need to grab current value from gradio. Must we send it as input?
+            preset = ["" if p is None else p for p in preset]
             return [gr.update(value = pr) for pr in preset]
         
         def makeimgtmp(aratios,mode,usecom,usebase):
@@ -544,7 +561,7 @@ class Script(modules.scripts.Script):
                 "RP LoRA Neg U Ratios": lnur,
                     })
 
-            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, lnter, lnur)
+            savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur)
             self.__init__()
             self.active = True
             self.mode = mode
@@ -1262,49 +1279,65 @@ def unloader(self,p):
 #############################################################
 ##### Preset save and load
 
-def savepresets(name,mode, ratios, baseratios, usebase, usecom, usencom, calcmode, lnter, lnur):
-    path_root = scripts.basedir()
-    filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.csv")
+def initpresets(filepath):
+    lpr = PRESETS
+    # if not os.path.isfile(filepath):
     try:
-        with open(filepath,mode = 'r',encoding="utf-8") as f:
-            presets = f.readlines()
-            pr = f'{name},{mode},"{ratios}","{baseratios}",{str(usebase)},{str(usecom)},{str(usencom)},{str(calcmode)},{str(lnter)},{str(lnur)}\n'
+        with open(filepath, mode='w', encoding="utf-8") as f:
+            lprj = []
+            for pr in lpr:
+                prj = {PRESET_KEYS[i][0]:pr[i] for i,_ in enumerate(PRESET_KEYS)} 
+                lprj.append(prj)
+            #json.dump(json.dumps(lprj), f, indent = 2)
+            json.dump(lprj, f, indent = 2)
+            return lprj
+    except Exception as e:
+        return None
+
+def savepresets(*settings):
+    # NAME must come first.
+    name = settings[0]
+    path_root = scripts.basedir()
+    filepath = os.path.join(path_root, "scripts", "regional_prompter_presets.json")
+
+    try:
+        with open(filepath, mode='r', encoding="utf-8") as f:
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
+            pr = {PRESET_KEYS[i][0]:settings[i] for i,_ in enumerate(PRESET_KEYS)}
             written = False
-            if name == "lastrun":
-                for i, preset in enumerate(presets):
-                    if "lastrun" in preset :
-                        presets[i] = pr
-                        written = True
-            if not written : presets.append(pr)
-        with open(filepath,mode = 'w',encoding="utf-8") as f:
-            f.writelines(presets)
+            # if name == "lastrun": # SBM We should check the preset is unique in any case.
+            for i, preset in enumerate(presets):
+                if name == preset["name"]:
+                # if "lastrun" in preset["name"]:
+                    presets[i] = pr
+                    written = True
+            if not written:
+                presets.append(pr)
+        with open(filepath, mode='w', encoding="utf-8") as f:
+            # json.dump(json.dumps(presets), f, indent = 2)
+            json.dump(presets, f, indent = 2)
     except Exception as e:
         print(e)
+
     presets = loadpresets(filepath)
-    return gr.update(choices = [pr[0] for pr in presets])
+    return gr.update(choices=[pr["name"] for pr in presets])
 
 def loadpresets(filepath):
     presets = []
     try:
-        with open(filepath,encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) > 5:
-                    presets.append(row)
-            presets = presets[1:]
+        with open(filepath, encoding="utf-8") as f:
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
     except OSError as e:
-        presets=PRESETS
-        print("ERROR")
-        if not os.path.isfile(filepath):
-            try:
-                with open(filepath,mode = 'w',encoding="utf-8") as f:
-                    f.writelines('"name","mode","divide ratios,"use base","baseratios","usecom","usencom","calcmode","LoRA in negative Textencoder","LoRA in negative U-Net"\n')
-                    for pr in presets:
-                        text = ",".join(pr) + "\n"
-                        f.writelines(text)
-            except Exception:
-                pass
+        print("Init / preset error.")
+        presets = initpresets(filepath)
+    except TypeError:
+        print("Corrupted file, resetting.")
+        presets = initpresets(filepath)
+        
     return presets
+    
 
 ######################################################
 ##### Latent Method
