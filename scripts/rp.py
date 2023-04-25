@@ -1,12 +1,12 @@
-from random import choices
+#from random import choices # SBM Unused?
 from typing import Union
 from matplotlib.style import available
 import PIL
 import inspect
-import copy
-from regex import R
+#import copy # SBM Unused?
+#from regex import R # SBM Unused?
 import torch
-import csv
+# import csv # SBM Replaced.
 import math
 import gradio as gr
 import numpy as np
@@ -18,6 +18,9 @@ from modules import shared,scripts,extra_networks,devices,paths
 from modules.processing import Processed
 from modules.script_callbacks import CFGDenoisedParams, on_cfg_denoised ,CFGDenoiserParams,on_cfg_denoiser
 import json # Presets.
+from torchvision.transforms import Resize, InterpolationMode # Mask.
+import cv2 # Polygon regions.
+import colorsys # Polygon regions.
 
 #'"name","mode","divide ratios,"use base","baseratios","usecom","usencom",\n'
 """
@@ -373,11 +376,175 @@ def isfloat(t):
         return True
     except Exception:
         return False
+    
+"""
+SBM mod: Mask polygon region.
+- Basically a version of inpainting, where polygon outlines are drawn and added to a coloured image.
+- Colours from the image are picked apart for masks corresponding to regions.
+- In new mask mode, masks are stored instead of aratios, and applied to each region forward.
+- Mask can be uploaded (alpha, no save), and standard colours are detected from it.
+- Uncoloured regions default to the first colour detected;
+  however, if base mode is used, instead base will be applied to the remainder at 100% strength.
+  I think this makes it far more useful. At 0 strength, it will apply ONLY to said regions.
+Some sketch code shamelessly copied from controlnet, thanks. 
+"""
+
+POLYFACTOR = 1.5 # Small lines are detected as shapes.
+LCOLOUR = set() # List of used colours. CONT: Empty when image is deleted, interpret from colours on upload. 
+COLREG = None # Computed colour regions. Array. Extended whenever a new colour is requested. 
+IDIM = 512
+CBLACK = 255
+VARIANT = 0 # Ensures that the sketch canvas is actually refreshed.
+
+def generate_unique_colors(n):
+    """Generate n visually distinct colors as a list of RGB tuples.
+    
+    Uses the hue of hsv, with balanced saturation & value.
+    """
+    hsv_colors = [(x*1.0/n, 0.5, 0.5) for x in range(n)]
+    rgb_colors = [tuple(int(i * CBLACK) for i in colorsys.hsv_to_rgb(*hsv)) for hsv in hsv_colors]
+    return rgb_colors
+
+def deterministic_colours(n, lcol = None):
+    """Generate n visually distinct & consistent colours as a list of RGB tuples.
+    
+    Uses the hue of hsv, with balanced saturation & value.
+    Goes around the cyclical 0-256 and picks each /2 value for every round.
+    Continuation rules: If pcyv != ccyv in next round, then we don't care.
+    If pcyv == ccyv, we want to get the cval + delta of last elem.
+    If lcol > n, will return it as is.
+    """
+    if n <= 0:
+        return None
+    pcyc = -1
+    cval = 0
+    if lcol is None:
+        st = 0
+    elif n <= len(lcol):
+        # return lcol[:n] # Truncating the list is accurate, but pointless.
+        return lcol
+    else:
+        st = len(lcol)
+        if st > 0:
+            pcyc = np.ceil(np.log2(st))
+            # This is erroneous on st=2^n, but we don't care.
+            dlt = 1 / (2 ** pcyc)
+            cval = dlt + 2 * dlt * (st % (2 ** (pcyc - 1)) - 1)
+
+    lhsv = []
+    for i in range(st,n):
+        ccyc = np.ceil(np.log2(i + 1))
+        if ccyc == 0: # First col = 0.
+            cval = 0
+            pcyc = ccyc
+        elif pcyc != ccyc: # New cycle, start from the half point between 0 and first point.
+            dlt = 1 / (2 ** ccyc)
+            cval = dlt
+            pcyc = ccyc
+        else:
+            cval = cval + 2 * dlt # Jumps over existing vals.
+        lhsv.append(cval)
+    lhsv = [(v, 0.5, 0.5) for v in lhsv] # Hsv conversion only works 0:1.
+    lrgb = [colorsys.hsv_to_rgb(*hsv) for hsv in lhsv]
+    lrgb = (np.array(lrgb) * (CBLACK + 1)).astype(np.uint8) # Convert to colour uints.
+    lrgb = lrgb.reshape(-1, 3)
+    if lcol is not None:
+        lrgb = np.concatenate([lcol, lrgb])
+    return lrgb
+
+def detect_polygons(img,num):
+    global LCOLOUR
+    global COLREG
+    global VARIANT
+    
+    LCOLOUR.add(num)
+    
+    # I dunno why, but mask has a 4th colour channel, which contains nothing. Alpha?
+    if VARIANT != 0:
+        out = img["image"][:-VARIANT,:-VARIANT,:3]
+        img = img["mask"][:-VARIANT,:-VARIANT,:3]
+    else:
+        out = img["image"][:,:,:3]
+        img = img["mask"][:,:,:3]
+    
+    # Convert the binary image to grayscale
+    if img is None:
+        img = np.zeros([IDIM,IDIM,3],dtype = np.uint8) + CBLACK # Stupid cv.
+    if out is None:
+        out = np.zeros_like(img) + CBLACK # Stupid cv.
+    bimg = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    
+    # Find contours in the image
+    # Must reverse colours, otherwise draws an outer box (0->255). Dunno why gradio uses 255 for white anyway. 
+    contours, hierarchy = cv2.findContours(bimg, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    #img2 = np.zeros_like(img) + 255 # Fresh image.
+    img2 = out # Update current image.
+
+    COLREG = deterministic_colours(int(num) + 1, COLREG)
+    color = COLREG[int(num),:]
+    # Loop through each contour and detect polygons
+    for cnt in contours:
+        # Approximate the contour to a polygon
+        approx = cv2.approxPolyDP(cnt, 0.0001 * cv2.arcLength(cnt, True), True)
+
+        # If the polygon has 3 or more sides and is fully enclosed, fill it with a random color
+        # if len(approx) >= 3: # BAD test.
+        if cv2.contourArea(cnt) > cv2.arcLength(cnt, True) * POLYFACTOR: # Better, still messes up on large brush.
+            #SBM BUGGY, prevents contours from . cv2.pointPolygonTest(approx, (approx[0][0][0], approx[0][0][1]), False) >= 0:
+                                                          
+                                                    
+            
+            # Draw the polygon on the image with a new random color
+            color = [int(v) for v in color] # Opencv is dumb / C based and can't handle an int64 array.
+            #cv2.drawContours(img2, [approx], 0, color = color) # Only outer sketch.
+            cv2.fillPoly(img2,[approx],color = color)
+                
+
+                                                               
+                                        
+
+    # Convert the grayscale image back to RGB
+    #img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2RGB) # Converting to grayscale is dumb.
+    
+    skimg = create_canvas(img2.shape[0], img2.shape[1], indnew = False)
+    if VARIANT != 0:
+        skimg[:-VARIANT,:-VARIANT,:] = img2
+    else:
+        skimg[:,:,:] = img2
+    
+    print("Region sketch size", skimg.shape)
+    return skimg, num + 1 if num + 1 <= CBLACK else num
+
+def detect_mask(img, num, mult = CBLACK):
+    """Extract specific colour and return mask.
+    
+    Multiplier for correct display.
+    """
+    color = deterministic_colours(int(num) + 1)[-1]
+    color = color.reshape([1,1,3])
+    mask = ((img["image"] == color).all(-1)) * mult
+    return mask
+
+def create_canvas(h, w, indnew = True):
+    """New region sketch area.
+    
+    Small variant value is added (and ignored later) due to gradio refresh bug.
+    Meant to be used only to start over or when the image dims change.
+    """
+    global VARIANT
+    global LCOLOUR
+    VARIANT = 1 - VARIANT
+    if indnew:
+        LCOLOUR = set()
+    vret =  np.zeros(shape = (h + VARIANT, w + VARIANT, 3), dtype = np.uint8) + CBLACK
+    return vret
 
 class Script(modules.scripts.Script):
     def __init__(self):
         self.mode = ""
         self.calcmode = ""
+        self.indmaskmode = False
         self.indexperiment = False
         self.w = 0
         self.h = 0
@@ -386,6 +553,8 @@ class Script(modules.scripts.Script):
         self.usencom = False
         self.aratios = []
         self.bratios = []
+        self.regmasks = None
+        self.regbase = None
         self.divide = 0
         self.count = 0
         self.pn = True
@@ -431,7 +600,7 @@ class Script(modules.scripts.Script):
             with gr.Row():
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
             with gr.Row():
-                mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical"], value="Horizontal",  type="value", interactive=True)
+                mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical", "Mask"], value="Horizontal",  type="value", interactive=True)
                 calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
             with gr.Row(visible=True):
                 ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
@@ -446,6 +615,20 @@ class Script(modules.scripts.Script):
                     template = gr.Textbox(label="template",interactive=True,visible=True)
                 with gr.Column():
                     areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
+            with gr.Row():
+                with gr.Column():
+                    polymask = gr.Image(source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
+                    num = gr.Slider(label="Region", minimum=0, maximum=CBLACK, step=1, value=1)
+                    canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
+                    canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
+                    btn = gr.Button(value = "Draw region")
+                    btn2 = gr.Button(value = "Display mask")
+                    cbtn = gr.Button(value="Create mask area")
+                with gr.Column():
+                    showmask = gr.Image(shape=(IDIM, IDIM))
+            btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
+            btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
+            cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
 
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
@@ -543,9 +726,9 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
-        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur]
+        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, polymask]
 
-    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur):
+    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, polymask):
         if active:
             p.extra_generation_params.update({
                 "RP Active":active,
@@ -584,6 +767,8 @@ class Script(modules.scripts.Script):
                 self.active = False
                 unloader(self,p)
                 return
+            if mode == "Mask":
+                self.indmaskmode = True
             self.w = p.width
             self.h = p.height
             if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
@@ -610,8 +795,102 @@ class Script(modules.scripts.Script):
                 self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
                 self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
 
+            # SBM In mask mode, grabs each mask from coloured mask image.
+            # If there's no base, remainder goes to first mask.
+            # If there's a base, it will receive its own remainder mask, applied at 100%.
+            if self.indmaskmode:
+                if self.usecom and KEYCOMM in p.prompt:
+                    comprompt = p.prompt.split(KEYCOMM,1)[0]
+                    p.prompt = p.prompt.split(KEYCOMM,1)[1]
+                elif self.usecom and KEYBRK in p.prompt:
+                    comprompt = p.prompt.split(KEYBRK,1)[0]
+                    p.prompt = p.prompt.split(KEYBRK,1)[1]
+                if self.usencom and KEYCOMM in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
+                elif self.usencom and KEYBRK in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
+                    
+                if (KEYBASE in p.prompt.upper()): # Designated base.
+                    self.usebase = True
+                    baseprompt = p.prompt.split(KEYBASE,1)[0]
+                    mainprompt = p.prompt.split(KEYBASE,1)[1] 
+                    #self.basebreak = fcountbrk(baseprompt) # No support for inner breaks currently.
+                elif usebase: # Get base by first break as usual.
+                    baseprompt = p.prompt.split(KEYBRK,1)[0]
+                    mainprompt = p.prompt.split(KEYBRK,1)[1]
+                else:
+                    baseprompt = ""
+                    mainprompt = p.prompt
+                    
+                # Prep masks.
+                self.regmasks = []
+                tm = None
+                for c in sorted(LCOLOUR):
+                    m = detect_mask(polymask, c, 1)
+                    if VARIANT != 0:
+                        m = m[:-VARIANT,:-VARIANT]
+                    if m.any():
+                        if tm is None:
+                            tm = np.zeros_like(m) # First mask is ignored deliberately.
+                            if self.usebase: # In base mode, base gets the outer regions.
+                                tm = tm + m
+                        else:
+                            tm = tm + m
+                        m = m.reshape([1, *m.shape]).astype(np.float16)
+                        t = torch.from_numpy(m).to(devices.device) 
+                        self.regmasks.append(t)
+                # First mask applies to all unmasked regions.
+                m = 1 - tm
+                m = m.reshape([1, *m.shape]).astype(np.float16)
+                t = torch.from_numpy(m).to(devices.device)
+                if self.usebase:
+                    self.regbase = t
+                else:
+                    self.regbase = None
+                    self.regmasks[0] = t
+                # t = torch.from_numpy(np.zeros([1,512,512], dtype = np.float16)).to(devices.device)
+                # self.regmasks.append(t)
+                # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
+                # self.regmasks.append(t)
+                
+                breaks = mainprompt.count(KEYBRK) + int(self.usebase)
+                self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
+                                        basestruct = [[0] * (breaks + 1)], indflip = False)
+                # Convert all keys to breaks, and expand neg to fit.
+                mainprompt = mainprompt.replace(KEYROW,KEYBRK) # Cont: Should be case insensitive.
+                mainprompt = mainprompt.replace(KEYCOL,KEYBRK)
+                p.prompt = mainprompt
+                if self.usebase:
+                    p.prompt = baseprompt + fspace(KEYBRK) + p.prompt
+                p.all_prompts = [p.prompt] * len(p.all_prompts)
+                npr = p.negative_prompt
+                npr.replace(KEYROW,KEYBRK)
+                npr.replace(KEYCOL,KEYBRK)
+                npr = npr.split(KEYBRK)
+                nbreaks = len(npr) - 1
+                if breaks >= nbreaks: # Repeating the first neg as in orig code.
+                    npr.extend([npr[0]] * (breaks - nbreaks))
+                else: # Cut off the excess negs.
+                    npr = npr[0:breaks + 1]
+                for i ,n in enumerate(npr):
+                    if n.isspace() or n =="":
+                        npr[i] = ","
+                # p.negative_prompt = fspace(KEYBRK).join(npr)
+                # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
+                if comprompt is not None : 
+                    p.prompt = comprompt + fspace(KEYBRK) + p.prompt
+                    for i in lange(p.all_prompts):
+                        p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
+                if comnegprompt is not None :
+                    p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
+                    for i in lange(p.all_negative_prompts):
+                        p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
+                self, p = commondealer(self, p, self.usecom, self.usencom) 
+            
             # SBM In matrix mode, the ratios are broken up 
-            if self.indexperiment:
+            elif self.indexperiment:
                 if self.usecom and KEYCOMM in p.prompt:
                     comprompt = p.prompt.split(KEYCOMM,1)[0]
                     p.prompt = p.prompt.split(KEYCOMM,1)[1]
@@ -699,19 +978,19 @@ class Script(modules.scripts.Script):
                 if self.usebase:
                     p.prompt = baseprompt + fspace(KEYBRK) + p.prompt 
                 p.all_prompts = [p.prompt] * len(p.all_prompts)
-                np = p.negative_prompt
-                np.replace(KEYROW,KEYBRK)
-                np.replace(KEYCOL,KEYBRK)
-                np = np.split(KEYBRK)
-                nbreaks = len(np) - 1
+                npr = p.negative_prompt
+                npr.replace(KEYROW,KEYBRK)
+                npr.replace(KEYCOL,KEYBRK)
+                npr = np.split(KEYBRK)
+                nbreaks = len(npr) - 1
                 if breaks >= nbreaks: # Repeating the first neg as in orig code.
-                    np.extend([np[0]] * (breaks - nbreaks))
+                    npr.extend([npr[0]] * (breaks - nbreaks))
                 else: # Cut off the excess negs.
-                    np = np[0:breaks + 1]
-                for i ,n in enumerate(np):
+                    npr = npr[0:breaks + 1]
+                for i ,n in enumerate(npr):
                     if n.isspace() or n =="":
-                        np[i] = ","
-                # p.negative_prompt = fspace(KEYBRK).join(np)
+                        npr[i] = ","
+                # p.negative_prompt = fspace(KEYBRK).join(npr)
                 # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
                 if comprompt is not None : 
                     p.prompt = comprompt + fspace(KEYBRK) + p.prompt
@@ -758,7 +1037,7 @@ class Script(modules.scripts.Script):
             unloader(self,p)
         return p
 
-    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur,**kwargs):
+    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, polymask, **kwargs):
         global lactive,labug
         if self.lora_applied: # SBM Don't override orig twice on batch calls.
             pass
@@ -792,7 +1071,7 @@ class Script(modules.scripts.Script):
 
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
-    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur):
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, polymask):
         if not self.active:
             return p
         if self.usecom or self.indexperiment or self.anded:
@@ -876,13 +1155,19 @@ class Script(modules.scripts.Script):
             x = params.x
             batch = self.batch_size
             # x.shape = [batch_size, C, H // 8, W // 8]
+            indrebuild = False
             if self.filters == [] :
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
+                indrebuild = True
+            elif self.filters[0].size() != x[0].size():
+                indrebuild = True
+            if indrebuild:
+                if self.indmaskmode:
+                    masks = (self.regmasks,self.regbase)
+                else:
+                    masks = self.aratios
+                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks,
+                                           self.mode,self.usebase,self.bratios,self.indexperiment,self.indmaskmode)
                 self.neg_filters = [1- f for f in self.filters]
-            else:
-                if self.filters[0].size() != x[0].size():
-                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
-                    self.neg_filters = [1- f for f in self.filters]
 
             if self.debug : print("filterlength : ",len(self.filters))
 
@@ -1115,16 +1400,91 @@ def hook_forward(self, module):
             elif "Vertical" in self.mode:
                 ox = torch.cat(h_states, dim=1)
             return ox
+        
+        def masksepcalc(x,contexts,mask,pn,divide):
+            xs = x.size()[1]
+            (dsh,dsw) = split_dims(xs, height, width, debug = self.debug)
+
+            tll = self.pt if pn else self.nt
+            
+            # Base forward.
+            cad = 0 if self.usebase else 1 # 1 * self.usebase is shorter.
+            i = 0
+            outb = None
+            if self.usebase:
+                context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+                # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
+                cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
+                if cnet_ext > 0:
+                    context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
+                    
+                i = i + 1
+                out = main_forward(module, x, context, mask, divide, self.isvanilla)
+
+                if len(self.nt) == 1 and not pn:
+                    if self.debug : print("return out for NP")
+                    return out
+                # if self.usebase:
+                outb = out.clone()
+                outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
+
+            if self.debug : print(f"tokens : {tll},pn : {pn}")
+            
+            ox = torch.zeros_like(x)
+            ox = ox.reshape(ox.shape[0], dsh, dsw, ox.shape[2])
+            ftrans = Resize((dsh, dsw), interpolation = InterpolationMode("nearest"))
+            for rmask in self.regmasks:
+                # Need to delay mask tensoring so it's on the correct gpu.
+                # Dunno if caching masks would be an improvement.
+                if self.usebase:
+                    bweight = self.bratios[0][i - 1]
+                # Resize mask to current dims.
+                # Since it's a mask, we prefer a binary value, nearest is the only option.
+                rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+                rmask2 = rmask2.reshape(1, dsh, dsw, 1)
+                
+                # Grabs a set of tokens depending on number of unrelated breaks.
+                context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+                # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
+                cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
+                if cnet_ext > 0:
+                    context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
+                    
+                if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
+                i = i + 1
+                # if i >= contexts.size()[1]: 
+                #     indlast = True
+                out = main_forward(module, x, context, mask, divide, self.isvanilla)
+                if len(self.nt) == 1 and not pn:
+                    if self.debug : print("return out for NP")
+                    return out
+                    
+                out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
+                if self.usebase:
+                    out = out * (1 - bweight) + outb * bweight
+                ox = ox + out * rmask2
+
+            if self.usebase:
+                rmask = self.regbase
+                rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+                rmask2 = rmask2.reshape(1, dsh, dsw, 1)
+                ox = ox + outb * rmask2
+            ox = ox.reshape(x.size()[0],x.size()[1],x.size()[2]) # Restore to 3d source.  
+            return ox
 
         if self.eq:
             if self.debug : print("same token size and divisions")
-            if self.indexperiment:
+            if self.indmaskmode:
+                ox = masksepcalc(x, contexts, mask, True, 1)
+            elif self.indexperiment:
                 ox = matsepcalc(x, contexts, mask, True, 1)
             else:
                 ox = regsepcalc(x, contexts, mask, True, 1)
         elif x.size()[0] == 1 * self.batch_size:
             if self.debug : print("different tokens size")
-            if self.indexperiment:
+            if self.indmaskmode:
+                ox = masksepcalc(x, contexts, mask, self.pn, 1)
+            elif self.indexperiment:
                 ox = matsepcalc(x, contexts, mask, self.pn, 1)
             else:
                 ox = regsepcalc(x, contexts, mask, self.pn, 1)
@@ -1138,7 +1498,10 @@ def hook_forward(self, module):
             else:
                 px, nx = x.chunk(2)
                 conp,conn = contexts.chunk(2)
-            if self.indexperiment:
+            if self.indmaskmode:
+                opx = masksepcalc(px, conp, mask, True, 2)
+                onx = masksepcalc(nx, conn, mask, False, 2)
+            elif self.indexperiment:
                 # SBM I think division may have been an incorrect patch.
                 # But I'm not sure, haven't tested beyond DDIM / PLMS.
                 opx = matsepcalc(px, conp, mask, True, 2)
@@ -1378,13 +1741,36 @@ def lora_namer(self,p, lnter, lnur):
         print(regioner.u_llist)
 
 
-def makefilters(c,h,w,masks,mode,usebase,bratios,xy): 
+def makefilters(c,h,w,masks,mode,usebase,bratios,xy,indmask = None):
+    if indmask is not None:
+        (regmasks, regbase) = masks
+        
     filters = []
     x =  torch.zeros(c, h, w).to(devices.device)
     if usebase:
         x0 = torch.zeros(c, h, w).to(devices.device)
     i=0
-    if xy:
+    if indmask:
+        ftrans = Resize((h, w), interpolation = InterpolationMode("nearest"))
+        for rmask, bratio in zip(regmasks,bratios[0]):
+            # Resize mask to current dims.
+            # Since it's a mask, we prefer a binary value, nearest is the only option.
+            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+            rmask2 = rmask2.reshape([1, h, w])
+            fx = x.clone()
+            if usebase:
+                fx[:,:,:] = fx + rmask2 * (1 - bratio)
+                x0[:,:,:] = x0 + rmask2 * bratio
+            else:
+                fx[:,:,:] = fx + rmask2 * 1
+            filters.append(fx)
+            
+        if usebase: # Add base to x0.
+            rmask = regbase
+            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+            rmask2 = rmask2.reshape([1, h, w])
+            x0 = x0 + rmask2
+    elif xy:
         for drow in masks:
             for dcell in drow.cols:
                 fx = x.clone()
