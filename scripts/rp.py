@@ -383,7 +383,9 @@ SBM mod: Mask polygon region.
 - Colours from the image are picked apart for masks corresponding to regions.
 - In new mask mode, masks are stored instead of aratios, and applied to each region forward.
 - Mask can be uploaded (alpha, no save), and standard colours are detected from it.
-- Uncoloured regions default to the first colour detected.
+- Uncoloured regions default to the first colour detected;
+  however, if base mode is used, instead base will be applied to the remainder at 100% strength.
+  I think this makes it far more useful. At 0 strength, it will apply ONLY to said regions.
 Some sketch code shamelessly copied from controlnet, thanks. 
 """
 
@@ -550,6 +552,8 @@ class Script(modules.scripts.Script):
         self.usencom = False
         self.aratios = []
         self.bratios = []
+        self.regmasks = None
+        self.regbase = None
         self.divide = 0
         self.count = 0
         self.pn = True
@@ -791,7 +795,8 @@ class Script(modules.scripts.Script):
                 self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
 
             # SBM In mask mode, grabs each mask from coloured mask image.
-            # SBM CONT placeholder.
+            # If there's no base, remainder goes to first mask.
+            # If there's a base, it will receive its own remainder mask, applied at 100%.
             if self.indmaskmode:
                 self.regmasks = []
                 tm = None
@@ -800,6 +805,8 @@ class Script(modules.scripts.Script):
                     if m.any():
                         if tm is None:
                             tm = np.zeros_like(m) # First mask is ignored deliberately.
+                            if self.usebase: # In base mode, base gets the outer regions.
+                                tm = tm + m
                         else:
                             tm = tm + m
                         m = m.reshape([1, *m.shape]).astype(np.float16)
@@ -809,12 +816,15 @@ class Script(modules.scripts.Script):
                 m = 1 - tm
                 m = m.reshape([1, *m.shape]).astype(np.float16)
                 t = torch.from_numpy(m).to(devices.device)
-                self.regmasks[0] = t
+                if self.usebase:
+                    self.regbase = t
+                else:
+                    self.regbase = None
+                    self.regmasks[0] = t
                 # t = torch.from_numpy(np.zeros([1,512,512], dtype = np.float16)).to(devices.device)
                 # self.regmasks.append(t)
                 # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
                 # self.regmasks.append(t)
-                regcnt = 2 # CONT Used for base.
                 
                 if self.usecom and KEYBRK in p.prompt:
                     comprompt = p.prompt.split(KEYBRK,1)[0]
@@ -829,7 +839,8 @@ class Script(modules.scripts.Script):
                     baseprompt = ""
                     mainprompt = p.prompt
                 breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-                self.bratios = [0.2,0.2] # CONT use split with single anchor from fake list.
+                self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
+                                        basestruct = [[0] * (breaks + 1)], indflip = False)
                 # Convert all keys to breaks, and expand neg to fit.
                 mainprompt = mainprompt.replace(KEYROW,KEYBRK) # Cont: Should be case insensitive.
                 mainprompt = mainprompt.replace(KEYCOL,KEYBRK)
@@ -1384,7 +1395,7 @@ def hook_forward(self, module):
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
-                i = i + 1 + self.basebreak
+                i = i + 1
                 out = main_forward(module, x, context, mask, divide, self.isvanilla)
 
                 if len(self.nt) == 1 and not pn:
@@ -1398,14 +1409,14 @@ def hook_forward(self, module):
             
             ox = torch.zeros_like(x)
             ox = ox.reshape(ox.shape[0], dsh, dsw, ox.shape[2])
+            ftrans = Resize((dsh, dsw), interpolation = InterpolationMode("nearest"))
             for rmask in self.regmasks:
                 # Need to delay mask tensoring so it's on the correct gpu.
                 # Dunno if caching masks would be an improvement.
                 if self.usebase:
-                    bweight = self.bratios[i - 1]
+                    bweight = self.bratios[0][i - 1]
                 # Resize mask to current dims.
                 # Since it's a mask, we prefer a binary value, nearest is the only option.
-                ftrans = Resize((dsh, dsw), interpolation = InterpolationMode("nearest"))
                 rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
                 rmask2 = rmask2.reshape(1, dsh, dsw, 1)
                 
@@ -1430,6 +1441,11 @@ def hook_forward(self, module):
                     out = out * (1 - bweight) + outb * bweight
                 ox = ox + out * rmask2
 
+            if self.usebase:
+                rmask = self.regbase
+                rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+                rmask2 = rmask2.reshape(1, dsh, dsw, 1)
+                ox = ox + outb * rmask2
             ox = ox.reshape(x.size()[0],x.size()[1],x.size()[2]) # Restore to 3d source.  
             return ox
 
