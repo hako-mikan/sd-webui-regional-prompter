@@ -1,12 +1,12 @@
-from random import choices
+#from random import choices # SBM Unused?
 from typing import Union
 from matplotlib.style import available
 import PIL
 import inspect
-import copy
-from regex import R
+#import copy # SBM Unused?
+#from regex import R # SBM Unused?
 import torch
-import csv
+# import csv # SBM Replaced.
 import math
 import gradio as gr
 import numpy as np
@@ -513,6 +513,7 @@ def detect_polygons(img,num):
     else:
         skimg[:,:,:] = img2
     
+    print("Region sketch size", skimg.shape)
     return skimg, num + 1 if num + 1 <= CBLACK else num
 
 def detect_mask(img, num, mult = CBLACK):
@@ -798,10 +799,38 @@ class Script(modules.scripts.Script):
             # If there's no base, remainder goes to first mask.
             # If there's a base, it will receive its own remainder mask, applied at 100%.
             if self.indmaskmode:
+                if self.usecom and KEYCOMM in p.prompt:
+                    comprompt = p.prompt.split(KEYCOMM,1)[0]
+                    p.prompt = p.prompt.split(KEYCOMM,1)[1]
+                elif self.usecom and KEYBRK in p.prompt:
+                    comprompt = p.prompt.split(KEYBRK,1)[0]
+                    p.prompt = p.prompt.split(KEYBRK,1)[1]
+                if self.usencom and KEYCOMM in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
+                elif self.usencom and KEYBRK in p.negative_prompt:
+                    comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
+                    p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
+                    
+                if (KEYBASE in p.prompt.upper()): # Designated base.
+                    self.usebase = True
+                    baseprompt = p.prompt.split(KEYBASE,1)[0]
+                    mainprompt = p.prompt.split(KEYBASE,1)[1] 
+                    #self.basebreak = fcountbrk(baseprompt) # No support for inner breaks currently.
+                elif usebase: # Get base by first break as usual.
+                    baseprompt = p.prompt.split(KEYBRK,1)[0]
+                    mainprompt = p.prompt.split(KEYBRK,1)[1]
+                else:
+                    baseprompt = ""
+                    mainprompt = p.prompt
+                    
+                # Prep masks.
                 self.regmasks = []
                 tm = None
                 for c in sorted(LCOLOUR):
                     m = detect_mask(polymask, c, 1)
+                    if VARIANT != 0:
+                        m = m[:-VARIANT,:-VARIANT]
                     if m.any():
                         if tm is None:
                             tm = np.zeros_like(m) # First mask is ignored deliberately.
@@ -826,18 +855,6 @@ class Script(modules.scripts.Script):
                 # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
                 # self.regmasks.append(t)
                 
-                if self.usecom and KEYBRK in p.prompt:
-                    comprompt = p.prompt.split(KEYBRK,1)[0]
-                    p.prompt = p.prompt.split(KEYBRK,1)[1]
-                if self.usencom and KEYBRK in p.negative_prompt:
-                    comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
-                    p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
-                if usebase:
-                    baseprompt = p.prompt.split(KEYBRK,1)[0]
-                    mainprompt = p.prompt.split(KEYBRK,1)[1]
-                else:
-                    baseprompt = ""
-                    mainprompt = p.prompt
                 breaks = mainprompt.count(KEYBRK) + int(self.usebase)
                 self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
                                         basestruct = [[0] * (breaks + 1)], indflip = False)
@@ -1138,13 +1155,19 @@ class Script(modules.scripts.Script):
             x = params.x
             batch = self.batch_size
             # x.shape = [batch_size, C, H // 8, W // 8]
+            indrebuild = False
             if self.filters == [] :
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
+                indrebuild = True
+            elif self.filters[0].size() != x[0].size():
+                indrebuild = True
+            if indrebuild:
+                if self.indmaskmode:
+                    masks = (self.regmasks,self.regbase)
+                else:
+                    masks = self.aratios
+                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks,
+                                           self.mode,self.usebase,self.bratios,self.indexperiment,self.indmaskmode)
                 self.neg_filters = [1- f for f in self.filters]
-            else:
-                if self.filters[0].size() != x[0].size():
-                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],self.aratios,self.mode,self.usebase,self.bratios,self.indexperiment)
-                    self.neg_filters = [1- f for f in self.filters]
 
             if self.debug : print("filterlength : ",len(self.filters))
 
@@ -1718,13 +1741,36 @@ def lora_namer(self,p, lnter, lnur):
         print(regioner.u_llist)
 
 
-def makefilters(c,h,w,masks,mode,usebase,bratios,xy): 
+def makefilters(c,h,w,masks,mode,usebase,bratios,xy,indmask = None):
+    if indmask is not None:
+        (regmasks, regbase) = masks
+        
     filters = []
     x =  torch.zeros(c, h, w).to(devices.device)
     if usebase:
         x0 = torch.zeros(c, h, w).to(devices.device)
     i=0
-    if xy:
+    if indmask:
+        ftrans = Resize((h, w), interpolation = InterpolationMode("nearest"))
+        for rmask, bratio in zip(regmasks,bratios[0]):
+            # Resize mask to current dims.
+            # Since it's a mask, we prefer a binary value, nearest is the only option.
+            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+            rmask2 = rmask2.reshape([1, h, w])
+            fx = x.clone()
+            if usebase:
+                fx[:,:,:] = fx + rmask2 * (1 - bratio)
+                x0[:,:,:] = x0 + rmask2 * bratio
+            else:
+                fx[:,:,:] = fx + rmask2 * 1
+            filters.append(fx)
+            
+        if usebase: # Add base to x0.
+            rmask = regbase
+            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
+            rmask2 = rmask2.reshape([1, h, w])
+            x0 = x0 + rmask2
+    elif xy:
         for drow in masks:
             for dcell in drow.cols:
                 fx = x.clone()
