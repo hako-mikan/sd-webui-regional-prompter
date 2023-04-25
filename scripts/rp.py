@@ -855,12 +855,15 @@ class Script(modules.scripts.Script):
                 # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
                 # self.regmasks.append(t)
                 
-                breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-                self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
-                                        basestruct = [[0] * (breaks + 1)], indflip = False)
                 # Convert all keys to breaks, and expand neg to fit.
                 mainprompt = mainprompt.replace(KEYROW,KEYBRK) # Cont: Should be case insensitive.
                 mainprompt = mainprompt.replace(KEYCOL,KEYBRK)
+                
+                # Simulated region anchroing for base weights.
+                breaks = mainprompt.count(KEYBRK) + int(self.usebase)
+                self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
+                                        basestruct = [[0] * (breaks + 1)], indflip = False)
+                
                 p.prompt = mainprompt
                 if self.usebase:
                     p.prompt = baseprompt + fspace(KEYBRK) + p.prompt
