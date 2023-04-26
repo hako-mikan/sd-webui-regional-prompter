@@ -98,7 +98,7 @@ best quality, 20yo lady in garden, blue skirt
 ```
 So you must set 4 prompts for 3 regions. If `Use base prompt` is also enabled 5 prompts are needed. The order is as follows: common, base, prompt1,prompt2,...
 
-### 2D region assignment (experimental function)
+### 2D region assignment
 You can specify a region in two dimensions. Using a special separator (`ADDCOL/ADDROW`), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by `ADDCOL` and vertically when separated by `ADDROW`. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use `BREAK` alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using `ADDBASE `as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples.
 In this mode, the direction selected in `Divide mode` changes which separator is applied first:
 - In `Horizontal` mode, the image is first split to rows with `ADDROW` or `;` in Divide ratio, then each row is split to regions with `ADDCOL` or `,` in Divide ratio.
@@ -149,6 +149,22 @@ red hair BREAK
 green dress
 ```
 If there is a prompt that says `a girl` in the common clause, region 1 is generated with the prompt `a girl , red hair`. In the base clause, if the base ratio is 0.2, it is generated with the prompt `a girl` * 0.2 + `red hair` * 0.8. Basically, common clause combines prompts, and base clause combines weights (like img2img denoising strength). You may want to try the base if the common prompt is too strong, or fine tune the (emphasis).
+
+### region specification by prompt (experimenta)
+The region is specified by the prompt. The picture below was created with the following prompt, but the prompt `apple printed` should only affect the shirt, but the actual apples are shown and so on. 
+```
+lady smiling and sitting, twintails green hair, white skirt, apple printed shirt
+```
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample1.png)
+The prompt region specification allows you to calculate the region for the "shirt" and adapt the "printed apples".
+
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample3.png)
+```
+lady smiling and sitting, twintails green hair, white skirt, shirt BREAK
+(apple printed:1.4),shirt
+```
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample2.png)
+
 
 ### Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
