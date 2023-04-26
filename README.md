@@ -156,6 +156,8 @@ The region is specified by the prompt. The picture below was created with the fo
 lady smiling and sitting, twintails green hair, white skirt, apple printed shirt
 ```
 ![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample1.png)
+If you enhance the effect of `apple printed` to `:1.4`, you get, 
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample4.png)
 The prompt region specification allows you to calculate the region for the "shirt" and adapt the "printed apples".
 
 ![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample3.png)
