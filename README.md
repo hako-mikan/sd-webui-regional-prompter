@@ -150,7 +150,7 @@ green dress
 ```
 If there is a prompt that says `a girl` in the common clause, region 1 is generated with the prompt `a girl , red hair`. In the base clause, if the base ratio is 0.2, it is generated with the prompt `a girl` * 0.2 + `red hair` * 0.8. Basically, common clause combines prompts, and base clause combines weights (like img2img denoising strength). You may want to try the base if the common prompt is too strong, or fine tune the (emphasis).
 
-### region specification by prompt (experimenta)
+### <a id="prompt">region specification by prompt (experimental)</a>
 The region is specified by the prompt. The picture below was created with the following prompt, but the prompt `apple printed` should only affect the shirt, but the actual apples are shown and so on. 
 ```
 lady smiling and sitting, twintails green hair, white skirt, apple printed shirt
