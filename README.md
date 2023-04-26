@@ -10,6 +10,7 @@
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
 ## Updates
+- New feature: ["inpaint+"](#mask-regions-aka-inpaint+-experimental-function)
 - New feature, "2D-Region"
 - New generation method "Latent" added. Generation is slower, but LoRA can be separated to some extent.
 - Supports over 75 tokens
@@ -123,6 +124,20 @@ Base Ratio :
 ```
 
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
+
+### mask regions aka inpaint+ (experimental function)
+It is now possible to specify regions using either multiple hand drawn masks or an uploaded image containing said masks (more on that later).
+- First, make sure you switch to `mask divide mode` next to `horizontal` / `vertical`. Otherwise the mask will be ignored and regions will be split to as usual.
+- Set `canvas width and height` according to desired image's, then press `create mask area`. If a different ratio or size is specified, the masks may be applied inaccurately (like in inpaint "just resize").
+- Draw an outline of the region desired in the canvas area, or paint it fully, then press `draw region`. This will add a filled polygon corresponding to the mask, coloured according to the `region` number you're on.
+- Pressing `draw region` will increment region by +1, allowing to draw the next region quickly. It will also keep a list of which regions were used for building the masks later. Up to ~360~ 256 regions can be used currently.
+- It's possible to add to existing regions by selecting their previously used colour and drawing as usual. There's currently no way to clear regions except for a new mask area (this may be added).
+- The `create mask area` button will show the mask of the region you've drawn previously, as it will be applied to prompt, according to the `region` number. The masks are detected via the region's unique colour.
+- Once the region masks are ready, write your prompt as usual: Divide ratios are ignored. Base ratios still apply to each region. All flags are supported, and all BREAK / ADDX keywords (ROW/COL will just be converted to BREAK). Attention and latent mode supported (loras maybe).
+- `Base` has unique rules in mask mode: When base is off, any non coloured regions are add to the first mask (therefore should be filled with the first prompt). When base is on, any non coloured regions will receive the base prompt, whilst coloured regions will receive the usual base weight. This makes base a particularly useful tool for specifying scene / background, with base weight = 0.
+- For those wishing to upload masks instead of drawing: Note that this feature is still *very much a WIP*. All colours must be tagged somehow for the mask to apply (either change the LCOLOUR variable in code or manually add each of the colours to the image). The colours are all variants of HSV(degree,50%,50%), where degree (0:360) is calculated as the maximally distant value from all previous colours (so colours are easily distinguishable). The first few values are essentially: 0, 180, 90, 270, 45, 135, 225, 315, 22.5 and so on. The choice of colours decides to which region they correspond.
+
+![RegionalMaskGuideB](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/RegionalMaskGuideB.jpg)
 
 ### Visualise and make template
 Areas can be visualized and templates for prompts can be created.
