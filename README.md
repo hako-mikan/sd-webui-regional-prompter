@@ -220,7 +220,7 @@ The difference is that in Prompt, duplicate areas are added, whereas in Prompt-E
 ### Accuracy
 In the case of a 512 x 512 image, Attention mode reduces the size of the region to about 8 x 8 pixels deep in the U-Net, so that small areas get mixed up; Latent mode calculates 64*64, so that the region is exact.  
 ```
-girl hair twintail frills,ribbons, dress, face AND
+girl hair twintail frills,ribbons, dress, face BREAK
 girl, ,face
 ```
 Prompt-EX/Attention
