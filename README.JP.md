@@ -10,11 +10,9 @@
 ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
 ## 更新情報
-- 新機能2D領域を追加しました
-- 新しい計算方式「Latent」を追加しました。生成が遅くなりますがLoRAをある程度分離できます
-- 75トークン以上を入力できるようになりました
-- 共通プロンプトを設定できるようになりました
-- 設定がPNG infoに保存されるようになりました
+- 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
+- 新機能 : [プロンプトによる領域指定](#divprompt) 
+
 
 [Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより[柔軟な領域指定](#2次元領域指定実験的機能)が可能になりました。
 
@@ -111,6 +109,20 @@ Base Ratio :
 
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
+## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
+ 手描きマスク、またはアップロードされたマスクを使って領域を指定することができるようになりました。
+- まず、`horizontal` / `vertical` の横にある `mask divide mode` に切り替えていることを確認してください。そうしないと、マスクは無視され、領域は通常通り分割されます。
+- キャンバスの幅と高さを希望する画像に合わせて設定し、`create mask area`を押してください。異なる比率やサイズを指定すると、マスクが正確に適用されないことがあります。（インペイントの「リサイズだけ」のように）。
+- キャンバス領域に必要な領域の輪郭を描くか、完全に塗りつぶした後、`draw region`を押してください。これにより、マスクに対応する塗りつぶし多角形が追加され、`region` の番号に従って色が付けられます。
+- draw region` を押すと、region が +1 ずつ増えていき、次のregion を素早く描画することができます。また、後でマスクを作るためにどのリージョンが使われたかのリストも保持されます。現在、最大で ~360~ 256 のリージョンが使用できます。
+- 既存のリージョンに追加するには、以前に使用された色を選択し、通常通り描画することが可能です。現在のところ、新しいマスク領域以外の領域をクリアする方法はありません（そのうちクリア機能は追加されるかもしれません）。
+- `make mask`ボタンは、以前に描いたリージョンについて、`region`の番号で指定されたマスクを表示します。マスクはリージョン固有の色によって検出されます。
+- リージョンマスクの準備ができたら、いつも通りプロンプトを書きます： 分割比率は無視されます。`base ratio`は各リージョンに適用されます。すべてのオプションがサポートされ、すべての BREAK / ADDX キーワード (ROW/COL は BREAK に変換されるだけです)。アテンションモードとレイテンモードがサポートされています。
+- ベースはマスクモードでは特別な変化をします： base が off のとき、色がついていない領域は最初のマスクに追加されます (したがって、最初のプロンプトで埋められるべきです)。base がオンのとき、色のついていないリージョンは base のプロンプトを反映します、色のついたリージョンは通常の base のウェイトを受け取ります。このため、baseはbase weight = 0で、シーン/背景を指定するのに特に便利なツールです。
+- 描画の代わりにマスクをアップロードしたい人向けです： この機能はまだ **非常に多くのWIP** であることに注意してください。マスクを適用するためには、すべての色に何らかのタグを付ける必要があります（コードでLCOLOUR変数を変更するか、手動で各色を画像に追加してください）。色はすべて `HSV(degree,50%,50%)` の変形で、 degree (0:360) は以前のすべての色から最大に離れた値として計算されます（そのため、色は容易に区別できます）。最初のいくつかの値は、基本的に 0、180、90、270、45、135、225、315、22.5などです。色の選択によって、どの領域に対応するかが決まります。
+
+![RegionalMaskGuideB](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/RegionalMaskGuideB.jpg)
+
 ### visualise and make template
 複雑な領域指定をする場合など領域を可視化して、テンプレートを作成します。
 
@@ -130,6 +142,67 @@ street stalls
 ![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg
 )
 
+
+## <a id="divprompt">region specification by prompt (experimental)</a>
+プロンプトによる領域指定です。これまでの領域指定では分割された領域に対してプロンプトを設定していました。この領域指定にはいくつかの問題があり、例えば縦に分割した場合、指定したオブジェクトがそこに限定されてしまします。プロンプトによる領域指定では指定したプロンプトを反映した領域が画像生成中に作成され、そこに対応したプロンプトが適用されます。よって、より柔軟な領域指定が可能になります。以下に例を示します。`apple printed`は`shirt`にだけ効果が反映されて欲しいわけですが、shirtには反映されず、林檎の現物が出てきたりするわけです。
+```
+lady smiling and sitting, twintails green hair, white skirt, apple printed shirt
+```
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample1.png)
+そこで`apple printedの強度を1.4にするとこうなるわけです。
+
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample4.png)
+プロンプトによる領域指定ではshirtに対して領域を計算して、そこに`apple printed`を適用します。
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample6.png)
+```
+lady smiling and sitting, twintails green hair, white skirt, shirt BREAK
+(apple printed:1.4),shirt
+```
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample2.png)
+すると、目的の効果が得られるわけです。これまでの領域指定ではshirtの位置を詳細に指定しなければいけなかったわけですが、その必要がなくなりました。
+### つかいかた
+### 書式
+```
+baseprompt target1 target2 BREAK
+effect1, target1 BREAK
+effect2 ,target2
+```
+まず、ベースプロンプトを書きます。ベースプロンプトにはマスクを作成する単語（target1、target2）を書きます。次にBREAKで区切ります。次に、target1に対応するプロンプトを書きます。そしてカンマを入力しtarget1を記載します。ベースプロンプトのtargetの順番とBREAKで区切られたtargetの順番は前後しても問題ありません。targetは大まかな単語でも問題なく、例えば`tops`と指定して、`effect`に`red camisole`などと書いてもいいわけです。
+
+```
+target2 baseprompt target1  BREAK
+effect1, target1 BREAK
+effect2 ,target2
+```
+ベースプロンプトの順番は考慮されません。effectの順番は考慮されます。
+
+### threshold
+プロンプトによって作られるマスクの判定に使われる閾値です。これは対象となるプロンプトによって範囲が大きく異なるのでマスクの数だけ設定できます。複数の領域を使うときはカンマで区切って入力して下さい。例えば髪は領域が曖昧になりがちなので小さな値が必要ですが、顔は領域が大きくなりがちなので小さな値が必要です。これはBREAKで区切られた順に並べて下さい。
+
+```
+a lady ,hair, face  BREAK
+red, hair BREAK
+tanned ,face
+```
+`threshold : 0.4,0.6`
+単一の値が入力された場合、すべての領域に同じ値が適用されます。
+
+### Prompt and Prompt-EX
+領域がかぶった場合の計算方式です。Promptだと加算されます。Prompt-EXだと順番に上書きされます。つまり、target1とtarget2の領域が重複していた場合、target2の領域が優先されます。target1にtopsを指定してthretholdを小さくして大きな領域にして、target2をbottomsとしてthresholdを大きくすれば良い分離が得られます。この場合、targetは領域が大きい順に記載されるべきです。
+
+### Accuracy
+12 x 512 サイズの場合、Attention modeではU-netの深い領域では 8 x 8 で計算されます。これでは小さい領域しては意味をなしません。よって領域の浸食が起きやすくなります。Latentモードでは 64*64で計算されるため領域が厳密になります。
+```
+girl hair twintail frills,ribbons, dress, face BREAK
+girl, ,face
+```
+Prompt-EX/Attention
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample5.png)
+Prompt-EX/Latent
+![prompt](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/psample3.png)
+
+
+
 ### ベースと共通の違い
 ```
 a girl ADDROMM(or ADDBASE)
@@ -141,3 +214,10 @@ green dress
 ## 謝辞
 Attention coupleを提案された[furusu](https://note.com/gcem156)氏、Latent coupleを提案された[opparco](https://github.com/opparco)氏、2D生成のコード作成に協力して頂いた[Symbiomatrix](https://github.com/Symbiomatrix)に感謝します。
 
+
+
+- 新機能2D領域を追加しました
+- 新しい計算方式「Latent」を追加しました。生成が遅くなりますがLoRAをある程度分離できます
+- 75トークン以上を入力できるようになりました
+- 共通プロンプトを設定できるようになりました
+- 設定がPNG infoに保存されるようになりました
