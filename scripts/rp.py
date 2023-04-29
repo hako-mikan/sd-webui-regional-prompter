@@ -13,7 +13,7 @@ reload(scripts.regions) # update without restarting web-ui.bat
 reload(scripts.attention)
 reload(scripts.latent)
 import json  # Presets.
-from scripts.attention import (TOKENS, hook_forwards, init_every_batch, savepmasks)
+from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, regioner, setloradevice, setuploras, unloadlorafowards)
 from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
@@ -70,6 +70,7 @@ class Script(modules.scripts.Script):
         self.regmasks = None
         self.regbase = None
         #for prompt region
+        self.pe = []
         self.modep =False
         self.calced = False
         self.step = 0
@@ -238,7 +239,6 @@ class Script(modules.scripts.Script):
             
 
         if "Prompt" not in mode: # skip region assign in prompt mode
-            self.modep = False
             self.cells = not "Mask" in mode
 
             if KEYBRK in p.prompt and not "Mask" in mode:
@@ -286,11 +286,11 @@ class Script(modules.scripts.Script):
                 self.active = False
                 unloader(self,p)
                 return
-
             self.ex = "Ex" in mode
             self.modep = True
+            if not usebase : bratios = "0"
             self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-            setuplatent(self)
+            denoiserdealer(self)
 
             if calcmode == "Latent":
                 seps = "AND"
@@ -298,39 +298,29 @@ class Script(modules.scripts.Script):
             else:
                 seps = KEYBRK
 
-        self, p = commondealer(self, p, self.usecom, self.usencom) 
-
-        if calcmode == "Latent":
-            self, p = anddealer(self, p)  
-
-        self.pt, self.nt ,ppt,pnt, self.eq, self.pe = tokendealer(p,self.modep,seps)
-
-        if self.modep:
-            threshold = threshold.split(",")
-            while len(self.pe) >= len(threshold) + 1:
-                threshold.append(threshold[0])
-            self.th = [float(t) for t in threshold] * self.batch_size
-            if self.debug :print ("threshold", self.th)
+        self, p = commondealer(self, p, self.usecom, self.usencom)   #add commom prompt to all region
+        self, p, breaks = anddealer(self, p , calcmode)                                 #replace BREAK to AND
+        self, ppt, pnt = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
+        self, p = thresholddealer(self, p, threshold)                          #set threshold
+        self = bratioprompt(self, bratios)
+                  
 
         print(f"pos tokens : {ppt}, neg tokens : {pnt}")
-        if debug : 
-            print(f"mode : {self.calcmode}\ndivide : {mode}\nusebase : {self.usebase}")
-            print(f"base ratios : {bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
-            print(f"divide : {breaks}\neq : {self.eq}\n")
-            print(f"ratios : {self.aratios}\n")
+        if debug : debugall(self)
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+        if active and self.modep:
+            self = reset_pmasks(self)
+        if active and calcmode =="Latent":
+            setloradevice(self, p)
+            lora_namer(self, p, lnter, lnur)
 
-        init_every_batch()
-        setloradevice(self,p)
-        lora_namer(self, p, lnter, lnur)
-
-        if self.lora_applied: # SBM Don't override orig twice on batch calls.
-            pass
-        else:
-            setuplatent(self)
-            self.lora_applied = True
-        
+            if self.lora_applied: # SBM Don't override orig twice on batch calls.
+                pass
+            else:
+                denoiserdealer(self)
+                self.lora_applied = True
+            
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
@@ -352,9 +342,12 @@ class Script(modules.scripts.Script):
                 file.write(processedx.infotext(p, 0))
         
         if self.modep:
-            savepmasks(self,processed)
+            savepmasks(self, processed)
 
-        unloader(self,p)
+        if self.debug : debugall(self)
+
+        unloader(self, p)
+
 
     def denoiser_callback(self, params: CFGDenoiserParams):
         denoiser_callback_s(self, params)
@@ -368,20 +361,15 @@ def unloader(self,p):
         print("unloaded")
         hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
         del self.handle
-        shared.batch_cond_uncond = orig_batch_cond_uncond 
-    global lactive
-    self.__init__()
 
-    if hasattr(self,"handle"):
-        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
-        del self.handle
+    self.__init__()
     
     shared.batch_cond_uncond = orig_batch_cond_uncond
 
-    unloadlorafowards()
+    unloadlorafowards(p)
 
 
-def setuplatent(self):
+def denoiserdealer(self):
     if self.calcmode =="Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
@@ -393,46 +381,6 @@ def setuplatent(self):
 
 ############################################################
 ##### prompts, tokens
-
-
-def tokendealer(p,modep,seps):
-    ppl = p.prompt.split(seps)
-    npl = p.negative_prompt.split(seps)
-    targets =[p.split(",")[-1] for p in ppl[1:]]
-    pt, nt, ppt, pnt, tt = [], [], [], [], []
-
-    padd = 0
-    for pp in ppl:
-        tokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(pp)
-        pt.append([padd, tokensnum // TOKENS + 1 + padd])
-        ppt.append(tokensnum)
-        padd = tokensnum // TOKENS + 1 + padd
-
-    if modep:
-        for target in targets:
-            ptokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(ppl[0])
-            ttokens, _ = shared.sd_model.cond_stage_model.tokenize_line(target)
-
-            i = 1
-            tlist = []
-            while ttokens[0].tokens[i] != 49407:
-                if ttokens[0].tokens[i] in ptokens[0].tokens:
-                    tlist.append(ptokens[0].tokens.index(ttokens[0].tokens[i]))
-                i += 1
-            if tlist != [] : tt.append(tlist)
-
-    paddp = padd
-    padd = 0
-    for np in npl:
-        _, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(np)
-        nt.append([padd, tokensnum // TOKENS + 1 + padd])
-        pnt.append(tokensnum)
-        padd = tokensnum // TOKENS + 1 + padd
-    eq = paddp == padd
-    print(tt)
-    return pt, nt, ppt, pnt, eq, tt
-
-
 def commondealer(self, p, usecom, usencom):
     def comadder(prompt):
         ppl = prompt.split(KEYBRK)
@@ -459,7 +407,10 @@ def commondealer(self, p, usecom, usencom):
     return self, p
 
 
-def anddealer(self, p):
+def anddealer(self, p, calcmode):
+    breaks = p.prompt.count(KEYBRK)
+    if calcmode != "Latent" : return self, p, breaks
+
     p.prompt = p.prompt.replace(KEYBRK, "AND")
     for i in lange(p.all_prompts):
         p.all_prompts[i] = p.all_prompts[i].replace(KEYBRK, "AND")
@@ -467,8 +418,59 @@ def anddealer(self, p):
     for i in lange(p.all_negative_prompts):
         p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(KEYBRK, "AND")
     self.divide = p.prompt.count("AND") + 1
-    return self, p
+    return self, p , breaks
 
+
+def tokendealer(self, p, seps):
+    ppl = p.prompt.split(seps)
+    npl = p.negative_prompt.split(seps)
+    targets =[p.split(",")[-1] for p in ppl[1:]]
+    pt, nt, ppt, pnt, tt = [], [], [], [], []
+
+    padd = 0
+    for pp in ppl:
+        tokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(pp)
+        pt.append([padd, tokensnum // TOKENS + 1 + padd])
+        ppt.append(tokensnum)
+        padd = tokensnum // TOKENS + 1 + padd
+
+    if self.modep:
+        for target in targets:
+            ptokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(ppl[0])
+            ttokens, _ = shared.sd_model.cond_stage_model.tokenize_line(target)
+
+            i = 1
+            tlist = []
+            while ttokens[0].tokens[i] != 49407:
+                if ttokens[0].tokens[i] in ptokens[0].tokens:
+                    tlist.append(ptokens[0].tokens.index(ttokens[0].tokens[i]))
+                i += 1
+            if tlist != [] : tt.append(tlist)
+
+    paddp = padd
+    padd = 0
+    for np in npl:
+        _, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(np)
+        nt.append([padd, tokensnum // TOKENS + 1 + padd])
+        pnt.append(tokensnum)
+        padd = tokensnum // TOKENS + 1 + padd
+    self.eq = paddp == padd
+
+    self.pt = pt
+    self.nt = nt
+    self.pe = tt
+
+    return self, ppt, pnt
+
+
+def thresholddealer(self, p ,threshold):
+    if self.modep:
+        threshold = threshold.split(",")
+        while len(self.pe) >= len(threshold) + 1:
+            threshold.append(threshold[0])
+        self.th = [float(t) for t in threshold] * self.batch_size
+        if self.debug :print ("threshold", self.th)
+    return self, p
 
 #####################################################
 ##### Save  and Load Settings
@@ -495,6 +497,7 @@ PRESET_KEYS = [
 ("nchangeand", fjbool, False) ,
 ("lnter", fjstr, "0") ,
 ("lnur", fjstr, "0") ,
+("threshold", fjstr, "0") ,
 ]
 
 
@@ -558,3 +561,19 @@ def initpresets(filepath):
             return lprj
     except Exception as e:
         return None
+
+def debugall(self):
+    print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
+    print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
+    print(f"divide : {self.divide}\neq : {self.eq}\n")
+    print(f"ratios : {self.aratios}\n")
+    print(f"prompt : {self.pe}\n")
+
+
+def bratioprompt(self, bratios):
+    bratios = bratios.split(",")
+    bratios = [float(b) for b in bratios]
+    while len(self.pe) >= len(bratios) + 1:
+        bratios.append(bratios[0])
+    self.bratios = bratios
+    return self

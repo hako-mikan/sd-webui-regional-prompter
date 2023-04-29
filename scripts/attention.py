@@ -8,7 +8,6 @@ from torchvision.transforms import InterpolationMode, Resize  # Mask.
 
 TOKENSCON = 77
 TOKENS = 75
-calced = False
 
 pmasks = {}
 pmaskshw =[]
@@ -454,34 +453,36 @@ def repeat_div(x,y):
 
 #################################################################################
 ##### for Prompt mode
-def init_every_batch(): # init parameters in every batch
-    global step,pmasks,pmaskshw,pmasksf,maskready
-    step = 0
+def reset_pmasks(self): # init parameters in every batch
+    global pmasks, pmaskshw, pmasksf, maskready
+    self.step = 0
     pmasks = {}
     pmaskshw =[]
     pmasksf = {}
     maskready = False
+    return self
 
 
 def savepmasks(self,processed):
     print(len(pmasks),len(self.pe),len(self.th))
     for mask ,th in zip(pmasks.values(),self.th):
-        img, _ , _= makepmask(mask,self.h,self.w,th)
+        img, _ , _= makepmask(mask, self.h, self.w,th, self.step)
         processed.images.append(img)
     return processed
 
 
-def makepmask(mask,h,w,th): # make masks from attention cache return [for preview, for attention, for Latent]
+def makepmask(mask, h, w, th, step, bratio = 1): # make masks from attention cache return [for preview, for attention, for Latent]
     th = th - step * 0.005
+    bratio = 1 - bratio
     mask = torch.mean(mask,dim=0)
     mask = mask / mask.max().item()
     mask = torch.where(mask > th ,1,0)
     mask = mask.float()
-    mask = mask.view(1,pmaskshw[0][0],pmaskshw[0][1])
+    mask = mask.view(1,pmaskshw[0][0],pmaskshw[0][1]) 
     img = torchvision.transforms.functional.to_pil_image(mask)
     img = img.resize((w,h))
     mask = F.resize(mask,(h,w),interpolation=F.InterpolationMode.NEAREST)
     lmask = mask
     mask = mask.reshape(h*w)
     mask = torch.where(mask > 0.1 ,1,0)
-    return img,mask,lmask
+    return img,mask * bratio , lmask * bratio

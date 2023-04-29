@@ -1,4 +1,5 @@
-
+from difflib import restore
+import random
 from pprint import pprint
 from typing import Union
 import torch
@@ -21,7 +22,7 @@ def setloradevice(self,p):
     if self.debug : print("change LoRA device for new lora")
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
         for l in lora.loaded_loras:
-            print(l.name)
+            l.name = l.name + "added_by_regional_prompter" + str(random.random())
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
         restoremodel(p)
@@ -45,8 +46,8 @@ def setuploras(self,p):
         if self.debug : print("hijack lora_forward")
         orig_lora_forward = lora.lora_forward
         lora.lora_forward = lora_forward
-    
-    return
+
+    return self
 
 ###################################################
 ###### Latent Method denoise call back
@@ -80,9 +81,9 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                 if len(att.pmaskshw) < 3: return
                 allmask = []
                 basemask = None
-                for t, th in zip(self.pe, self.th):
+                for t, th, bratio in zip(self.pe, self.th, self.bratios):
                     key = f"{t}-{b}"
-                    _, _, mask = att.makepmask(att.pmasks[key],params.x.shape[2],params.x.shape[3],th)
+                    _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
                     mask = mask.repeat(params.x.shape[1],1,1)
                     basemask = 1 - mask if basemask is None else basemask - mask
                     allmask.append(mask)
@@ -98,14 +99,14 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
             att.maskready = True
         
         else:    
-            for t, th in zip(self.pe, self.th):
+            for t, th, bratio in zip(self.pe, self.th, self.bratios):
                 if len(att.pmaskshw) < 3: return
                 allmask = []
                 for hw in att.pmaskshw:
                     masks = None
                     for b in range(self.batch_size):
                         key = f"{t}-{b}"
-                        _, mask, _ = att.makepmask(att.pmasks[key],hw[0],hw[1], th)
+                        _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
                         mask = mask.unsqueeze(0).unsqueeze(-1)
                         masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
                     allmask.append(mask)     
@@ -183,7 +184,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 ######################################################
 ##### Latent Method
 
-def lora_namer(self,p, lnter, lnur):
+def lora_namer(self, p, lnter, lnur):
     ldict = {}
     import lora as loraclass
     for lora in loraclass.loaded_loras:
@@ -203,10 +204,12 @@ def lora_namer(self,p, lnter, lnur):
             tdict[called.items[0]] = called.items[1]
 
         for key in llist[i].keys():
-            if key.split("added_by_lora_block_weight")[0] not in names:
+            shin_key = key.split("added_by_regional_prompter")[0]
+            shin_key = shin_key.split("added_by_lora_block_weight")[0]
+            if shin_key in names:
+                llist[i+1][key] = float(tdict[shin_key])
+            else:
                 llist[i+1][key] = 0
-            elif key in names:
-                llist[i+1][key] = float(tdict[key])
                 
     global regioner
     u_llist = [d.copy() for d in llist[1:]]
@@ -215,8 +218,8 @@ def lora_namer(self,p, lnter, lnur):
     regioner.u_llist = u_llist
     regioner.ndeleter(lnter, lnur)
     if self.debug:
-        print(regioner.te_llist)
-        print(regioner.u_llist)
+        print("LoRA regioner : TE list",regioner.te_llist)
+        print("LoRA regioner : U list",regioner.u_llist)
 
 def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
     if indmask:
@@ -425,14 +428,17 @@ def lora_apply_weights(self: Union[torch.nn.Conv2d, torch.nn.Linear, torch.nn.Mu
 def lora_Linear_forward(self, input):
     return lora_forward(self, input, torch.nn.Linear_forward_before_lora(self, input))
 
+
 def lora_Conv2d_forward(self, input):
     return lora_forward(self, input, torch.nn.Conv2d_forward_before_lora(self, input))
+
 
 LORAANDSOON = {
     "IA3Module" : "w",
     "LoraKronModule" : "w1",
     "LycoKronModule" : "w1",
 }
+
 
 def changethedevice(module):
     ltype = type(module).__name__
@@ -463,9 +469,10 @@ def changethedevice(module):
     if hasattr(module, 'bias') and module.bias != None:
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
+
 def restoremodel(p):
     model = p.sd_model
-    for name,module in model.named_modules():
+    for name, module in model.named_modules():
         if hasattr(module, "lora_weights_backup"):
             if module.lora_weights_backup is not None:
                 if isinstance(module, torch.nn.MultiheadAttention):
@@ -474,11 +481,14 @@ def restoremodel(p):
                 else:
                     module.weight.copy_(module.lora_weights_backup)
                 module.lora_weights_backup = None
+                module.lora_current_names = None
 
-def unloadlorafowards():
-    global orig_lora_Linear_forward, orig_lora_Conv2d_forward,orig_lora_apply_weights,orig_lora_forward,lactive
+
+def unloadlorafowards(p):
+    global orig_lora_Linear_forward, orig_lora_Conv2d_forward, orig_lora_apply_weights, orig_lora_forward, lactive
     lactive = False
     import lora
+    lora.loaded_loras.clear()
     if orig_lora_apply_weights != None :
         lora.lora_apply_weights = orig_lora_apply_weights
         orig_lora_apply_weights = None
