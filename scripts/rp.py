@@ -301,7 +301,7 @@ class Script(modules.scripts.Script):
                 seps = KEYBRK
 
         self, p = commondealer(self, p, self.usecom, self.usencom)   #add commom prompt to all region
-        self, p, breaks = anddealer(self, p , calcmode)                                 #replace BREAK to AND
+        self, p = anddealer(self, p , calcmode)                                 #replace BREAK to AND
         self, ppt, pnt = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
         self, p = thresholddealer(self, p, threshold)                          #set threshold
         self = bratioprompt(self, bratios)
