@@ -469,7 +469,7 @@ def thresholddealer(self, p ,threshold):
         threshold = threshold.split(",")
         while len(self.pe) >= len(threshold) + 1:
             threshold.append(threshold[0])
-        self.th = [float(t) for t in threshold] * self.batch_size
+        self.th = [floatdef(t, 0.4) for t in threshold] * self.batch_size
         if self.debug :print ("threshold", self.th)
     return self, p
 
@@ -477,7 +477,7 @@ def thresholddealer(self, p ,threshold):
 def bratioprompt(self, bratios):
     if not self.modep: return self
     bratios = bratios.split(",")
-    bratios = [float(b) for b in bratios]
+    bratios = [floatdef(b, 0) for b in bratios]
     while len(self.pe) >= len(bratios) + 1:
         bratios.append(bratios[0])
     self.bratios = bratios
