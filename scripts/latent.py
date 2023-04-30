@@ -186,7 +186,6 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
 def lora_namer(self, p, lnter, lnur):
     ldict = {}
-    print(self.current_prompts)
     import lora as loraclass
     for lora in loraclass.loaded_loras:
         ldict[lora.name] = lora.multiplier
