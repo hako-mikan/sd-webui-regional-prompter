@@ -473,6 +473,15 @@ def thresholddealer(self, p ,threshold):
         if self.debug :print ("threshold", self.th)
     return self, p
 
+
+def bratioprompt(self, bratios):
+    if not self.modep: return self
+    bratios = bratios.split(",")
+    bratios = [float(b) for b in bratios]
+    while len(self.pe) >= len(bratios) + 1:
+        bratios.append(bratios[0])
+    self.bratios = bratios
+    return self
 #####################################################
 ##### Save  and Load Settings
 
@@ -573,13 +582,3 @@ def debugall(self):
     print(f"divide : {self.divide}\neq : {self.eq}\n")
     print(f"ratios : {self.aratios}\n")
     print(f"prompt : {self.pe}\n")
-
-
-def bratioprompt(self, bratios):
-    if not self.modep: return self
-    bratios = bratios.split(",")
-    bratios = [float(b) for b in bratios]
-    while len(self.pe) >= len(bratios) + 1:
-        bratios.append(bratios[0])
-    self.bratios = bratios
-    return self
