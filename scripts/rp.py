@@ -279,7 +279,6 @@ class Script(modules.scripts.Script):
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self,p)
                 if self.debug : print(p.prompt)
-                regioner.reset()
                 seps = "AND"
 
             # seps = KEYBRK # SBM No longer is keybrk applied first.
