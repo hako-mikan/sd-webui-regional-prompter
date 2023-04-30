@@ -15,7 +15,7 @@ reload(scripts.latent)
 import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
-from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, regioner, setloradevice, setuploras, unloadlorafowards)
+from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, restoremodel, setloradevice, setuploras, unloadlorafowards)
 from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
 def lange(l):
@@ -311,19 +311,22 @@ class Script(modules.scripts.Script):
         print(f"pos tokens : {ppt}, neg tokens : {pnt}")
         if debug : debugall(self)
 
+    def before_process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+        self.current_prompts = kwargs["prompts"].copy()
+
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         if active and self.modep:
             self = reset_pmasks(self)
         if active and calcmode =="Latent":
-            setloradevice(self, p)
+            setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
             lora_namer(self, p, lnter, lnur)
 
             if self.lora_applied: # SBM Don't override orig twice on batch calls.
                 pass
             else:
+                restoremodel(p)
                 denoiserdealer(self)
                 self.lora_applied = True
-            
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
@@ -417,8 +420,8 @@ def commondealer(self, p, usecom, usencom):
 
 
 def anddealer(self, p, calcmode):
-    breaks = p.prompt.count(KEYBRK)
-    if calcmode != "Latent" : return self, p, breaks
+    self.divide = p.prompt.count(KEYBRK)
+    if calcmode != "Latent" : return self, p
 
     p.prompt = p.prompt.replace(KEYBRK, "AND")
     for i in lange(p.all_prompts):
@@ -427,7 +430,7 @@ def anddealer(self, p, calcmode):
     for i in lange(p.all_negative_prompts):
         p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(KEYBRK, "AND")
     self.divide = p.prompt.count("AND") + 1
-    return self, p , breaks
+    return self, p
 
 
 def tokendealer(self, p, seps):
