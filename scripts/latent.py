@@ -17,7 +17,8 @@ lactive = False
 labug =False
 pactive = False
 
-def setloradevice(self,p):
+def setloradevice(self):
+    regioner.__init__()
     import lora
     if self.debug : print("change LoRA device for new lora")
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
@@ -25,7 +26,6 @@ def setloradevice(self,p):
             l.name = l.name + "added_by_regional_prompter" + str(random.random())
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
-        restoremodel(p)
 
 def setuploras(self,p):
     import lora
@@ -186,11 +186,12 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
 def lora_namer(self, p, lnter, lnur):
     ldict = {}
+    print(self.current_prompts)
     import lora as loraclass
     for lora in loraclass.loaded_loras:
         ldict[lora.name] = lora.multiplier
-
-    subprompts = p.prompt.split("AND")
+    
+    subprompts = self.current_prompts[0].split("AND")
     llist =[ldict.copy() for i in range(len(subprompts)+1)]
     for i, prompt in enumerate(subprompts):
         _, extranets = extra_networks.parse_prompts([prompt])
@@ -212,6 +213,7 @@ def lora_namer(self, p, lnter, lnur):
                 llist[i+1][key] = 0
                 
     global regioner
+    regioner.__init__()
     u_llist = [d.copy() for d in llist[1:]]
     u_llist.append(llist[0].copy())
     regioner.te_llist = llist
