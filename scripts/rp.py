@@ -13,6 +13,7 @@ reload(scripts.regions) # update without restarting web-ui.bat
 reload(scripts.attention)
 reload(scripts.latent)
 import json  # Presets.
+from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, regioner, setloradevice, setuploras, unloadlorafowards)
 from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
@@ -543,6 +544,9 @@ def loadpresets(filepath):
     except TypeError:
         print("Corrupted file, resetting.")
         presets = initpresets(filepath)
+    except JSONDecodeError:
+        print("Json file could not be decoded.")
+        presets = initpresets(filepath)
         
     return presets
 
@@ -554,7 +558,8 @@ def initpresets(filepath):
         with open(filepath, mode='w', encoding="utf-8") as f:
             lprj = []
             for pr in lpr:
-                prj = {PRESET_KEYS[i][0]:pr[i] for i,_ in enumerate(PRESET_KEYS)} 
+                plen = min(len(PRESET_KEYS), len(pr)) # Future setting additions ignored.
+                prj = {PRESET_KEYS[i][0]:pr[i] for i in range(plen)}
                 lprj.append(prj)
             #json.dump(json.dumps(lprj), f, indent = 2)
             json.dump(lprj, f, indent = 2)
