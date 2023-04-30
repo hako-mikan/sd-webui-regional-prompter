@@ -576,6 +576,7 @@ def debugall(self):
 
 
 def bratioprompt(self, bratios):
+    if not self.modep: return self
     bratios = bratios.split(",")
     bratios = [float(b) for b in bratios]
     while len(self.pe) >= len(bratios) + 1:
