@@ -273,14 +273,16 @@ class Script(modules.scripts.Script):
 
             if calcmode == "Attention":
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-                shared.batch_cond_uncond = orig_batch_cond_uncond 
+                shared.batch_cond_uncond = orig_batch_cond_uncond
+                seps = KEYBRK 
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self,p)
                 if self.debug : print(p.prompt)
                 regioner.reset()
+                seps = "AND"
 
-            seps = KEYBRK
+            # seps = KEYBRK # SBM No longer is keybrk applied first.
 
         elif "Prompt" in mode: #Prompt mode use both calcmode
             if not (KEYBRK in p.prompt.upper() or "AND" in p.prompt.upper() or KEYPROMPT in p.prompt.upper()):
@@ -327,12 +329,18 @@ class Script(modules.scripts.Script):
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if not self.active:
             return p
-        if self.usecom or self.cells or self.anded:
-            p.prompt = self.orig_all_prompts[0]
-            p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
-        if self.usencom:
-            p.negative_prompt = self.orig_all_negative_prompts[0]
-            p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
+        # SBM I'm not sure if there's a prompt increment that isn't working, or that it must be done manually,
+        # but either way this will force p.prompt to receive the next value rather than revert to orig in batchcount.
+        if self.imgcount + 1 < len(self.orig_all_prompts):
+            p.prompt = p.all_prompts[self.imgcount + 1]
+            p.negative_prompt = p.all_negative_prompts[self.imgcount + 1]
+        else:
+            if self.usecom or self.cells or self.anded:
+                p.prompt = self.orig_all_prompts[0]
+                p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
+            if self.usencom:
+                p.negative_prompt = self.orig_all_negative_prompts[0]
+                p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
         self.imgcount += 1
         return p
 
