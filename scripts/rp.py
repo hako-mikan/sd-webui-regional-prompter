@@ -16,7 +16,7 @@ import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, restoremodel, setloradevice, setuploras, unloadlorafowards)
-from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
+from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
 def lange(l):
     return range(len(l))
@@ -46,6 +46,10 @@ class Script(modules.scripts.Script):
         self.batch_size = 0
         self.orig_all_prompts = []
         self.orig_all_negative_prompts = []
+        self.eq = []
+        self.pt = []
+        self.nt = []
+        self.pe = []
 
         self.cells = False
         self.aratios = []
@@ -215,6 +219,7 @@ class Script(modules.scripts.Script):
         self.orig_all_negative_prompts = p.all_negative_prompts
 
         comprompt = comnegprompt = None
+
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
 
@@ -223,15 +228,23 @@ class Script(modules.scripts.Script):
             print("Warning: Nonstandard height / width.")
             self.h = self.h - self.h % ATTNSCALE
             self.w = self.w - self.w % ATTNSCALE
-        
-        if KEYPROMPT in p.prompt.upper():
-            mode = "Prompt"
-            p.replace(KEYPROMPT,KEYBRK)
 
-        self.indmaskmode = mode == "Mask"
+        if hasattr(p,"enable_hr"): # Img2img doesn't have it.
+            self.hr = p.enable_hr
+            self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
+            self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
+            if self.hr_h % ATTNSCALE != 0 or self.hr_w % ATTNSCALE != 0:
+                # Testing shows a round down occurs in model.
+                print("Warning: Nonstandard height / width for ulscaled size")
+                self.hr_h = self.hr_h - self.hr_h % ATTNSCALE
+                self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
 
         self.mode = mode
-  
+
+        self, p = keydealer(self, p)
+
+        self.indmaskmode = (mode == "Mask")
+
         if not nchangeand and "AND" in p.prompt.upper():
             p.prompt = p.prompt.replace("AND",KEYBRK)
             for i in lange(p.all_prompts):
@@ -242,6 +255,7 @@ class Script(modules.scripts.Script):
         if "Prompt" not in mode: # skip region assign in prompt mode
             self.cells = not "Mask" in mode
 
+            #convert BREAK to ADDCOL/ADDROW
             if KEYBRK in p.prompt and not "Mask" in mode:
                 keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
                 keychanger = keychanger[:-1]
@@ -249,25 +263,13 @@ class Script(modules.scripts.Script):
                 for change in keychanger:
                     p.prompt= p.prompt.replace(KEYBRK,change,1)
 
-            if KEYCOMM in p.prompt: # Automatic common toggle.
-                self.usecom = True
-            self.usencom = usencom
-            
-            if KEYCOMM in p.negative_prompt: # Automatic common toggle.
-                self.usencom = True
-
-            if hasattr(p,"enable_hr"): # Img2img doesn't have it.
-                self.hr = p.enable_hr
-                self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
-                self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
-
             ##### region mode
 
             if self.indmaskmode:
-                self, p ,breaks = inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt)
+                self, p = inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt)
 
             elif self.cells:
-                self, p ,breaks = matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegprompt)
+                self, p = matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegprompt)
     
             ##### calcmode 
 
@@ -302,30 +304,33 @@ class Script(modules.scripts.Script):
 
         self, p = commondealer(self, p, self.usecom, self.usencom)   #add commom prompt to all region
         self, p = anddealer(self, p , calcmode)                                 #replace BREAK to AND
-        self, ppt, pnt = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
+        self = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
         self, p = thresholddealer(self, p, threshold)                          #set threshold
         self = bratioprompt(self, bratios)
                   
 
-        print(f"pos tokens : {ppt}, neg tokens : {pnt}")
+        print(f"pos tokens : {[t[0] for t in self.tokens]}, neg tokens : {[t[1] for t in self.tokens]}")
         if debug : debugall(self)
 
     def before_process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         self.current_prompts = kwargs["prompts"].copy()
+        print("before_process_batch : ",kwargs["prompts"][0])
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
-        if active and self.modep:
-            self = reset_pmasks(self)
-        if active and calcmode =="Latent":
-            setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
-            lora_namer(self, p, lnter, lnur)
+        if active : 
+            self.cb = p.iteration
+            if self.modep:
+                self = reset_pmasks(self)
+            if calcmode =="Latent":
+                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
+                lora_namer(self, p, lnter, lnur)
 
-            if self.lora_applied: # SBM Don't override orig twice on batch calls.
-                pass
-            else:
-                restoremodel(p)
-                denoiserdealer(self)
-                self.lora_applied = True
+                if self.lora_applied: # SBM Don't override orig twice on batch calls.
+                    pass
+                else:
+                    restoremodel(p)
+                    denoiserdealer(self)
+                    self.lora_applied = True
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
@@ -333,17 +338,18 @@ class Script(modules.scripts.Script):
             return p
         # SBM I'm not sure if there's a prompt increment that isn't working, or that it must be done manually,
         # but either way this will force p.prompt to receive the next value rather than revert to orig in batchcount.
-        if self.imgcount + 1 < len(self.orig_all_prompts):
-            p.prompt = p.all_prompts[self.imgcount + 1]
-            p.negative_prompt = p.all_negative_prompts[self.imgcount + 1]
-        else:
-            if self.usecom or self.cells or self.anded:
-                p.prompt = self.orig_all_prompts[0]
-                p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
-            if self.usencom:
-                p.negative_prompt = self.orig_all_negative_prompts[0]
-                p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
-        self.imgcount += 1
+        # if self.imgcount + 1 < len(self.orig_all_prompts):
+        #     p.prompt = p.all_prompts[self.imgcount + 1]
+        #     p.negative_prompt = p.all_negative_prompts[self.imgcount + 1]
+        # else:
+        #     if self.usecom or self.cells or self.anded:
+        #         p.prompt = self.orig_all_prompts[0]
+        #         p.all_prompts[self.imgcount] = self.orig_all_prompts[self.imgcount]
+        #     if self.usencom:
+        #         p.negative_prompt = self.orig_all_negative_prompts[0]
+        #         p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
+        # self.imgcount += 1
+        print("postprocess_image : ",self.imgcount,p.iteration,p.prompt,p.all_prompts)
         return p
 
     def postprocess(self, p, processed, *args):
@@ -433,8 +439,19 @@ def anddealer(self, p, calcmode):
 
 
 def tokendealer(self, p, seps):
-    ppl = p.prompt.split(seps)
-    npl = p.negative_prompt.split(seps)
+    self.tokens = []
+    print(p.all_prompts, p.all_negative_prompts)
+    poss = p.all_prompts[::p.batch_size]
+    negs = p.all_negative_prompts[::p.batch_size]
+
+    for pos,neg in zip(poss, negs):
+        self = tokendealer_inner(self, pos, neg, seps)
+    return self
+
+
+def tokendealer_inner(self, pos, neg, seps):
+    ppl = pos.split(seps)
+    npl = neg.split(seps)
     targets =[p.split(",")[-1] for p in ppl[1:]]
     pt, nt, ppt, pnt, tt = [], [], [], [], []
 
@@ -465,19 +482,21 @@ def tokendealer(self, p, seps):
         nt.append([padd, tokensnum // TOKENS + 1 + padd])
         pnt.append(tokensnum)
         padd = tokensnum // TOKENS + 1 + padd
-    self.eq = paddp == padd
 
-    self.pt = pt
-    self.nt = nt
-    self.pe = tt
+    self.eq.append(paddp == padd)
 
-    return self, ppt, pnt
+    self.pt.append(pt)
+    self.nt.append(nt)
+    self.pe.append(tt)
+    self.tokens.append([ppt,pnt])
+
+    return self
 
 
 def thresholddealer(self, p ,threshold):
     if self.modep:
         threshold = threshold.split(",")
-        while len(self.pe) >= len(threshold) + 1:
+        while len(self.pe[0]) >= len(threshold) + 1:
             threshold.append(threshold[0])
         self.th = [floatdef(t, 0.4) for t in threshold] * self.batch_size
         if self.debug :print ("threshold", self.th)
@@ -488,7 +507,7 @@ def bratioprompt(self, bratios):
     if not self.modep: return self
     bratios = bratios.split(",")
     bratios = [floatdef(b, 0) for b in bratios]
-    while len(self.pe) >= len(bratios) + 1:
+    while len(self.pe[0]) >= len(bratios) + 1:
         bratios.append(bratios[0])
     self.bratios = bratios
     return self
@@ -590,5 +609,26 @@ def debugall(self):
     print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
     print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
     print(f"divide : {self.divide}\neq : {self.eq}\n")
+    print(f"tokens : {self.tokens}, {self.pt}, {self.nt}\n")
     print(f"ratios : {self.aratios}\n")
     print(f"prompt : {self.pe}\n")
+
+def keydealer(self, p):
+    '''
+    detect COMM/BASE keys and set flags
+    '''
+    if KEYCOMM in p.prompt:
+        self.usecom = True
+    
+    if KEYCOMM in p.negtive_prompt:
+        self.usencom = True
+    
+    if KEYBASE in p.prompt:
+        self.usebase = True
+
+        
+    if KEYPROMPT in p.prompt.upper():
+        self.mode = "Prompt"
+        p.replace(KEYPROMPT,KEYBRK)
+
+    return self, p

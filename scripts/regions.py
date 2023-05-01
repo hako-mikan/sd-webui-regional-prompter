@@ -32,6 +32,8 @@ DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
 ("in",True): KEYROW,
 }
 
+ALLKEYS = [KEYCOMM,KEYROW, KEYCOL, KEYBASE, KEYPROMPT]
+
 fidentity = lambda x: x
 ffloatd = lambda c: (lambda x: floatdef(x,c))
 fcolourise = lambda: np.random.randint(0,MCOLOUR,size = 3)
@@ -411,7 +413,8 @@ def matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegpromp
     p.prompt = mainprompt
     if self.usebase:
         p.prompt = baseprompt + fspace(KEYBRK) + p.prompt 
-    p.all_prompts = [p.prompt] * len(p.all_prompts)
+    #p.all_prompts = [p.prompt] * len(p.all_prompts)
+
     npr = p.negative_prompt
     npr.replace(KEYROW,KEYBRK)
     npr.replace(KEYCOL,KEYBRK)
@@ -426,16 +429,16 @@ def matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegpromp
             npr[i] = ","
     # p.negative_prompt = fspace(KEYBRK).join(npr)
     # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-    if comprompt is not None : 
-        p.prompt = comprompt + fspace(KEYBRK) + p.prompt
-        for i in lange(p.all_prompts):
-            p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
-    if comnegprompt is not None :
-        p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
-        for i in lange(p.all_negative_prompts):
-            p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
-
-    return self, p, breaks
+    # if comprompt is not None : 
+    #     p.prompt = comprompt + fspace(KEYBRK) + p.prompt
+    #     for i in lange(p.all_prompts):
+    #         p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
+    # if comnegprompt is not None :
+    #     p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
+    #     for i in lange(p.all_negative_prompts):
+    #         p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
+    p = keyreplacer(p)
+    return self, p
 
 ################################################################
 ##### inpaint
@@ -602,20 +605,16 @@ def create_canvas(h, w, indnew = True):
 # If there's a base, it will receive its own remainder mask, applied at 100%.
 def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt):
     if self.usecom and KEYCOMM in p.prompt:
-        comprompt = p.prompt.split(KEYCOMM,1)[0]
         p.prompt = p.prompt.split(KEYCOMM,1)[1]
     elif self.usecom and KEYBRK in p.prompt:
-        comprompt = p.prompt.split(KEYBRK,1)[0]
         p.prompt = p.prompt.split(KEYBRK,1)[1]
+        
     if self.usencom and KEYCOMM in p.negative_prompt:
-        comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
         p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
     elif self.usencom and KEYBRK in p.negative_prompt:
-        comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
         p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
         
     if (KEYBASE in p.prompt.upper()): # Designated base.
-        self.usebase = True
         baseprompt = p.prompt.split(KEYBASE,1)[0]
         mainprompt = p.prompt.split(KEYBASE,1)[1] 
         #self.basebreak = fcountbrk(baseprompt) # No support for inner breaks currently.
@@ -669,7 +668,6 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprom
     p.prompt = mainprompt
     if self.usebase:
         p.prompt = baseprompt + fspace(KEYBRK) + p.prompt
-    p.all_prompts = [p.prompt] * len(p.all_prompts)
     npr = p.negative_prompt
     npr.replace(KEYROW,KEYBRK)
     npr.replace(KEYCOL,KEYBRK)
@@ -692,4 +690,19 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprom
         p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
         for i in lange(p.all_negative_prompts):
             p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
-    return self, p, breaks
+    return self, p
+
+
+def keyreplacer(p):
+    '''
+    replace all separators to BREAK
+    p.all_prompt and p.all_negative_prompt
+    '''
+    for key in ALLKEYS:
+        for i in lange(p.all_prompts):
+            p.all_prompts[i]= p.all_prompts[i].replace(key,KEYBRK)
+        
+        for i in lange(p.all_negative_prompts):
+            p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(key,KEYBRK)
+
+    return p
