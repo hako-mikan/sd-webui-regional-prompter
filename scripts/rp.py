@@ -620,7 +620,7 @@ def keydealer(self, p):
     if KEYCOMM in p.prompt:
         self.usecom = True
     
-    if KEYCOMM in p.negtive_prompt:
+    if KEYCOMM in p.negative_prompt:
         self.usencom = True
     
     if KEYBASE in p.prompt:
