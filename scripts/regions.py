@@ -682,14 +682,17 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprom
             npr[i] = ","
     # p.negative_prompt = fspace(KEYBRK).join(npr)
     # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-    if comprompt is not None : 
-        p.prompt = comprompt + fspace(KEYBRK) + p.prompt
-        for i in lange(p.all_prompts):
-            p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
-    if comnegprompt is not None :
-        p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
-        for i in lange(p.all_negative_prompts):
-            p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
+    # p.negative_prompt = fspace(KEYBRK).join(npr)
+    # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
+    # if comprompt is not None : 
+    #     p.prompt = comprompt + fspace(KEYBRK) + p.prompt
+    #     for i in lange(p.all_prompts):
+    #         p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
+    # if comnegprompt is not None :
+    #     p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
+    #     for i in lange(p.all_negative_prompts):
+    #         p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
+    p = keyreplacer(p)
     return self, p
 
 
