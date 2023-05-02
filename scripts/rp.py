@@ -305,7 +305,6 @@ class Script(modules.scripts.Script):
 
     def before_process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         self.current_prompts = kwargs["prompts"].copy()
-        print("before_process_batch : ",kwargs["prompts"][0])
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         print(kwargs["prompts"])
