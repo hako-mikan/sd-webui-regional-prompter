@@ -275,7 +275,7 @@ def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
         aratios2r = [1]
     else:
         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
-                                        indsingles = True, fmap = ffloatd(1), indflip = indflip)
+                                        indsingles = True, fmap = ffloatd(1), indflip = False)
     # Change all splitters to breaks.
     (aratios2,aratios2r) = ratiosdealer(aratios2,aratios2r)
     
