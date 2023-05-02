@@ -44,12 +44,6 @@ class Script(modules.scripts.Script):
         self.usecom = False
         self.usencom = False
         self.batch_size = 0
-        self.orig_all_prompts = []
-        self.orig_all_negative_prompts = []
-        self.eq = []
-        self.pt = []
-        self.nt = []
-        self.pe = []
 
         self.cells = False
         self.aratios = []
@@ -215,8 +209,9 @@ class Script(modules.scripts.Script):
         self.w = p.width
         self.h = p.height
         self.batch_size = p.batch_size
-        self.orig_all_prompts = p.all_prompts
-        self.orig_all_negative_prompts = p.all_negative_prompts
+        self.prompt = p.prompt
+        self.all_prompts = p.all_prompts.copy()
+        self.all_negative_prompts = p.all_negative_prompts.copy()
 
         comprompt = comnegprompt = None
 
@@ -241,7 +236,7 @@ class Script(modules.scripts.Script):
 
         self.mode = mode
 
-        self, p = keydealer(self, p)
+        self, p = flagfromkeys(self, p)
 
         self.indmaskmode = (mode == "Mask")
 
@@ -257,11 +252,7 @@ class Script(modules.scripts.Script):
 
             #convert BREAK to ADDCOL/ADDROW
             if KEYBRK in p.prompt and not "Mask" in mode:
-                keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
-                keychanger = keychanger[:-1]
-                print(keychanger,p.prompt)
-                for change in keychanger:
-                    p.prompt= p.prompt.replace(KEYBRK,change,1)
+                p = keyconverter(aratios, mode, usecom, usebase, p)
 
             ##### region mode
 
@@ -309,7 +300,7 @@ class Script(modules.scripts.Script):
         self = bratioprompt(self, bratios)
                   
 
-        print(f"pos tokens : {[t[0] for t in self.tokens]}, neg tokens : {[t[1] for t in self.tokens]}")
+        print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
         if debug : debugall(self)
 
     def before_process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
@@ -317,8 +308,11 @@ class Script(modules.scripts.Script):
         print("before_process_batch : ",kwargs["prompts"][0])
 
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
-        if active : 
-            self.cb = p.iteration
+        print(kwargs["prompts"])
+        if active:
+            p.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
+            p.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
+
             if self.modep:
                 self = reset_pmasks(self)
             if calcmode =="Latent":
@@ -385,7 +379,6 @@ def unloader(self,p):
 
     unloadlorafowards(p)
 
-
 def denoiserdealer(self):
     if self.calcmode =="Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
@@ -399,6 +392,8 @@ def denoiserdealer(self):
 ############################################################
 ##### prompts, tokens
 def commondealer(self, p, usecom, usencom):
+    all_prompts = []
+    all_negative_prompts = []
     def comadder(prompt):
         ppl = prompt.split(KEYBRK)
         for i in range(len(ppl)):
@@ -412,14 +407,14 @@ def commondealer(self, p, usecom, usencom):
     if usecom:
         self.prompt = p.prompt = comadder(p.prompt)
         for pr in p.all_prompts:
-            self.all_prompts.append(comadder(pr))
-        p.all_prompts = self.all_prompts
+            all_prompts.append(comadder(pr))
+        p.all_prompts = all_prompts
 
     if usencom:
         self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
-            self.all_negative_prompts.append(comadder(pr))
-        p.all_negative_prompts = self.all_negative_prompts
+            all_negative_prompts.append(comadder(pr))
+        p.all_negative_prompts = all_negative_prompts
         
     return self, p
 
@@ -439,19 +434,8 @@ def anddealer(self, p, calcmode):
 
 
 def tokendealer(self, p, seps):
-    self.tokens = []
-    print(p.all_prompts, p.all_negative_prompts)
-    poss = p.all_prompts[::p.batch_size]
-    negs = p.all_negative_prompts[::p.batch_size]
-
-    for pos,neg in zip(poss, negs):
-        self = tokendealer_inner(self, pos, neg, seps)
-    return self
-
-
-def tokendealer_inner(self, pos, neg, seps):
-    ppl = pos.split(seps)
-    npl = neg.split(seps)
+    ppl = p.all_prompts[0].split(seps)
+    npl = p.all_negative_prompts[0].split(seps)
     targets =[p.split(",")[-1] for p in ppl[1:]]
     pt, nt, ppt, pnt, tt = [], [], [], [], []
 
@@ -483,12 +467,13 @@ def tokendealer_inner(self, pos, neg, seps):
         pnt.append(tokensnum)
         padd = tokensnum // TOKENS + 1 + padd
 
-    self.eq.append(paddp == padd)
+    self.eq = paddp == padd
 
-    self.pt.append(pt)
-    self.nt.append(nt)
-    self.pe.append(tt)
-    self.tokens.append([ppt,pnt])
+    self.pt = pt
+    self.nt = nt
+    self.pe = tt
+    self.ppt = ppt
+    self.pnt = pnt
 
     return self
 
@@ -496,7 +481,7 @@ def tokendealer_inner(self, pos, neg, seps):
 def thresholddealer(self, p ,threshold):
     if self.modep:
         threshold = threshold.split(",")
-        while len(self.pe[0]) >= len(threshold) + 1:
+        while len(self.pe) >= len(threshold) + 1:
             threshold.append(threshold[0])
         self.th = [floatdef(t, 0.4) for t in threshold] * self.batch_size
         if self.debug :print ("threshold", self.th)
@@ -507,7 +492,7 @@ def bratioprompt(self, bratios):
     if not self.modep: return self
     bratios = bratios.split(",")
     bratios = [floatdef(b, 0) for b in bratios]
-    while len(self.pe[0]) >= len(bratios) + 1:
+    while len(self.pe) >= len(bratios) + 1:
         bratios.append(bratios[0])
     self.bratios = bratios
     return self
@@ -609,11 +594,11 @@ def debugall(self):
     print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
     print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
     print(f"divide : {self.divide}\neq : {self.eq}\n")
-    print(f"tokens : {self.tokens}, {self.pt}, {self.nt}\n")
+    print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}\n")
     print(f"ratios : {self.aratios}\n")
     print(f"prompt : {self.pe}\n")
 
-def keydealer(self, p):
+def flagfromkeys(self, p):
     '''
     detect COMM/BASE keys and set flags
     '''
@@ -632,3 +617,15 @@ def keydealer(self, p):
         p.replace(KEYPROMPT,KEYBRK)
 
     return self, p
+
+def keyconverter(aratios,mode,usecom,usebase,p):
+    '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
+    keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
+    keychanger = keychanger[:-1]
+    print(keychanger,p.prompt)
+    for change in keychanger:
+        if change == KEYCOMM and KEYCOMM in p.prompt: continue
+        if change == KEYBASE and KEYBASE in p.prompt: continue
+        p.prompt= p.prompt.replace(KEYBRK,change,1)
+
+    return p
