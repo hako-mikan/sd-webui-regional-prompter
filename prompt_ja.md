@@ -1,4 +1,4 @@
-## promptで指定する領域のチュートリアル
+## promptで指定する領域のチュートリアル1
 次の絵は以下のプロンプトで作られました。forestはT-シャツにだけ書いてくれればいいものの、背景まで森になっています。
 ```
 girl in street (forest printed:1.3) T-shirt, shortshorts daytime
