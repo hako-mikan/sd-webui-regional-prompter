@@ -10,6 +10,7 @@
 ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
 ## 更新情報
+- プロンプトによる領域指定の[チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md)
 - 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
 - 新機能 : [プロンプトによる領域指定](#divprompt) 
 
