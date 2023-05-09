@@ -1,0 +1,6 @@
+#polymask, #polymask > .h-60, #polymask > .h-60 > div, #polymask > .h-60 > div > img
+{
+    height: 512px !important;
+    max-height: 512px !important;
+    min-height: 512px !important;
+}
