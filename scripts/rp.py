@@ -114,8 +114,10 @@ class Script(modules.scripts.Script):
                     threshold = gr.Textbox(label = "threshold",value = 0.4,interactive=True,)
 
             with gr.Row():
+                polymask = gr.Image(label = "Mask mode",elem_id="polymask",
+                                        source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
+            with gr.Row():
                 with gr.Column():
-                    polymask = gr.Image(source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
                     num = gr.Slider(label="Region", minimum=0, maximum=CBLACK, step=1, value=1)
                     canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
                     canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
