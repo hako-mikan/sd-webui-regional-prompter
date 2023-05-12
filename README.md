@@ -175,17 +175,21 @@ Result is following,
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
 It is now possible to specify regions using either multiple hand drawn masks or an uploaded image containing said masks (more on that later).
-- First, make sure you switch to `mask divide mode` next to `horizontal` / `vertical`. Otherwise the mask will be ignored and regions will be split to as usual.
+- First, make sure you switch to `mask divide mode` next to `horizontal` / `vertical`. Otherwise the mask will be ignored and regions will be split by ratios as usual.
 - Set `canvas width and height` according to desired image's, then press `create mask area`. If a different ratio or size is specified, the masks may be applied inaccurately (like in inpaint "just resize").
-- Draw an outline of the region desired in the canvas area, or paint it fully, then press `draw region`. This will add a filled polygon corresponding to the mask, coloured according to the `region` number you're on.
-- Pressing `draw region` will increment region by +1, allowing to draw the next region quickly. It will also keep a list of which regions were used for building the masks later. Up to ~360~ 256 regions can be used currently.
-- It's possible to add to existing regions by selecting their previously used colour and drawing as usual. There's currently no way to clear regions except for a new mask area (this may be added).
-- The `display mask` button will show the mask of the region you've drawn previously, as it will be applied to prompt, according to the `region` number. The masks are detected via the region's unique colour.
+- Draw an outline / area of the region desired on the canvas, then press `draw region`. This will fill out the area, and colour it according to the `region` number you picked. **Note that the drawing is in black only, filling and colouring are performed automatically.** The region mask will be displayed below, to the right.
+- Pressing `draw region` will automatically advance to the next region. It will also keep a list of which regions were used for building the masks later. Up to 360 regions can be used currently, but note that a few of them on the higher end are identical.
+- It's possible to add to existing regions by reselecting the same number and drawing as usual.
+- The special region number -1 will clear out (colour white) any drawn areas, and display which parts still contain regions in mask.
 - Once the region masks are ready, write your prompt as usual: Divide ratios are ignored. Base ratios still apply to each region. All flags are supported, and all BREAK / ADDX keywords (ROW/COL will just be converted to BREAK). Attention and latent mode supported (loras maybe).
-- `Base` has unique rules in mask mode: When base is off, any non coloured regions are add to the first mask (therefore should be filled with the first prompt). When base is on, any non coloured regions will receive the base prompt in full, whilst coloured regions will receive the usual base weight. This makes base a particularly useful tool for specifying scene / background, with base weight = 0.
-- For those wishing to upload masks instead of drawing: Note that this feature is still **very much a WIP**. All colours must be tagged somehow for the mask to apply (either change the LCOLOUR variable in code or manually add each of the colours to the image once). The colours are all variants of `HSV(degree,50%,50%)`, where degree (0:360) is calculated as the maximally distant value from all previous colours (so colours are easily distinguishable). The first few values are essentially: 0, 180, 90, 270, 45, 135, 225, 315, 22.5 and so on. The choice of colours decides to which region they correspond.
+- `Base` has unique rules in mask mode: When base is off, any non coloured regions are added to the first mask (therefore should be filled with the first prompt). When base is on, any non coloured regions will receive the base prompt in full, whilst coloured regions will receive the usual base weight. This makes base a particularly useful tool for specifying scene / background, with base weight = 0.
+- Masks are saved to and loaded from presets whose divide mode is `mask`. The mask is saved in the extension directory, under the folder `regional_masks`, as {preset}.png file.
+- Masks can be uploaded from any image by using the empty component labelled `upload mask here`. It will automatically filter and tag the colours approximating matching those used for regions, and ignore the rest. The region / nonregion sections will be displayed under mask. **Do not upload directly to sketch area, and read the [known issues](#knownissues) section.**
+- If you wish to draw masks in an image editor, this is how the colours correspond to regions: The colours are all variants of `HSV(degree,50%,50%)`, where degree (0:360) is calculated as the maximally distant value from all previous colours (so colours are easily distinguishable). The first few values are essentially: 0, 180, 90, 270, 45, 135, 225, 315, 22.5 and so on. The choice of colours decides to which region they correspond.
+- Protip: You may upload an openpose / depthmap / any other image, then trace the regions accordingly. Masking will ignore colours which don't belong to the expected colour standard.
 
-![RegionalMaskGuideB](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/RegionalMaskGuideB.jpg)
+![RegionalMaskGuide2](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/RegionalMaskGuide2.jpg)
+![RegionalMaskGuide2B](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/RegionalMaskGuide2B.jpg)
 
 
 Here is sample and code  
@@ -269,9 +273,19 @@ green dress
 If there is a prompt that says `a girl` in the common clause, region 1 is generated with the prompt `a girl , red hair`. In the base clause, if the base ratio is 0.2, it is generated with the prompt `a girl` * 0.2 + `red hair` * 0.8. Basically, common clause combines prompts, and base clause combines weights (like img2img denoising strength). You may want to try the base if the common prompt is too strong, or fine tune the (emphasis).
 The immediate strength that corresponds to the target should be stronger than normal. Even 1.6 doesn't break anything.
 
-### Acknowledgments
-I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
+## <a id="knownissues">Known issues</a>
+- Due to an [issue with gradio](https://github.com/gradio-app/gradio/issues/4088), uploading a mask or loading a mask preset more than twice in a row will fail. There are two workarounds for this:
+1) Before EVERY upload / load, press `create mask area`.
+2) Modify the code in gradio.components.Image.preprocess; add the following at the beginning of the function.
+```
+        if self.tool == "sketch" and self.source in ["upload", "webcam"]:
+            if x is not None and isinstance(x, str):
+                x = {"image":x, "mask": x[:]}
+```
+The extension cannot perform this override automatically, because gradio doesn't currently support [custom components](https://github.com/gradio-app/gradio/issues/1432). Attempting to override the component / method in the extension causes the application to not load at all.
 
+## Acknowledgments
+I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
 
 
 ## Updates

@@ -3,6 +3,7 @@ from importlib import reload
 from pprint import pprint
 import gradio as gr
 import modules.ui
+import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared
 from modules.processing import Processed
 from modules.script_callbacks import (CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
@@ -15,8 +16,33 @@ reload(scripts.latent)
 import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
-from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, restoremodel, setloradevice, setuploras, unloadlorafowards)
-from scripts.regions import (CBLACK, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, create_canvas, detect_mask, detect_polygons, floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
+from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer,
+                            restoremodel, setloradevice, setuploras, unloadlorafowards)
+from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT,
+                             create_canvas, draw_region, #detect_mask, detect_polygons,  
+                             draw_image, save_mask, load_mask,
+                             floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
+
+FLJSON = "regional_prompter_presets.json"
+# Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
+PTPRESET = modules.scripts.basedir()
+# PTPRESET = paths.script_path
+# Original, fallback.
+PTPRESETALT = os.path.join(paths.script_path, "scripts")
+# OVERRIDE monkey patch: gradio.Image.preprocess.
+# Shallowly fixes a certain bug which causes a sketch to deteriorate to image.
+# class Image_Fix(gr.Image): 
+#     def preprocess(self,x):
+#         """Change str (image64) to dict with a null mask.
+#
+#         Ugh.
+#         """
+#         if self.tool == "sketch" and self.source in ["upload", "webcam"]:
+#             if isinstance(x, str):
+#                 x = {"image":x, "mask": None}
+#         return super().preprocess(x)
+
+# gr.Image = Image_Fix
 
 def lange(l):
     return range(len(l))
@@ -85,8 +111,7 @@ class Script(modules.scripts.Script):
     paste_field_names = []
 
     def ui(self, is_img2img):
-        path_root = modules.scripts.basedir()
-        filepath = os.path.join(path_root,"scripts", "regional_prompter_presets.json")
+        filepath = os.path.join(PTPRESET, FLJSON)
 
         presets = []
 
@@ -114,21 +139,24 @@ class Script(modules.scripts.Script):
                     threshold = gr.Textbox(label = "threshold",value = 0.4,interactive=True,)
 
             with gr.Row():
-                polymask = gr.Image(label = "Mask mode",elem_id="polymask",
-                                        source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
+                polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
+                                    source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
             with gr.Row():
                 with gr.Column():
-                    num = gr.Slider(label="Region", minimum=0, maximum=CBLACK, step=1, value=1)
+                    num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
                     canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
                     canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
-                    btn = gr.Button(value = "Draw region")
-                    btn2 = gr.Button(value = "Display mask")
+                    btn = gr.Button(value = "Draw region + show mask")
+                    # btn2 = gr.Button(value = "Display mask") # Not needed.
                     cbtn = gr.Button(value="Create mask area")
                 with gr.Column():
-                    showmask = gr.Image(shape=(IDIM, IDIM))
-            btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
-            btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
+                    showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
+                    # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
+                    uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
+            btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
+            # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
             cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
+            uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
 
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
@@ -142,7 +170,7 @@ class Script(modules.scripts.Script):
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold]
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -162,18 +190,29 @@ class Script(modules.scripts.Script):
         for _,name in self.infotext_fields:
             self.paste_field_names.append(name)
 
-        def setpreset(select):
+        def setpreset(select, *settings):
+            """Load preset from list.
+            
+            SBM: The only way I know how to get the old values in gradio,
+            is to pass them all as input.
+            """
+            # Need to swap all masked images to the source,
+            # getting "valueerror: cannot process this value as image".
+            # Gradio bug in components.postprocess, most likely.
+            settings = [s["image"] if (isinstance(s,dict) and "image" in s) else s for s in settings]
             presets = loadpresets(filepath)
             preset = presets[select]
+            preset = loadblob(preset)
             preset = [fmt(preset.get(k, vdef)) for (k,fmt,vdef) in PRESET_KEYS]
             preset = preset[1:] # Remove name.
-            # TODO: Need to grab current value from gradio. Must we send it as input?
-            preset = ["" if p is None else p for p in preset]
-            return [gr.update(value = pr) for pr in preset]
+            # Change nulls to original value.
+            preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
+            # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
+            return preset
         
 
         maketemp.click(fn=makeimgtmp, inputs =[ratios,mode,usecom,usebase],outputs = [areasimg,template])
-        applypresets.click(fn=setpreset, inputs = availablepresets, outputs=settings)
+        applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
                 
         return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
@@ -311,6 +350,9 @@ class Script(modules.scripts.Script):
     def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         # print(kwargs["prompts"])
         if active:
+            # SBM Before_process_batch was added in feb-mar, adding fallback.
+            if not hasattr(self,"current_prompts"):
+                self.current_prompts = kwargs["prompts"].copy()
             p.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
             p.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
 
@@ -500,6 +542,43 @@ def bratioprompt(self, bratios):
 #####################################################
 ##### Save  and Load Settings
 
+fimgpt = lambda flnm, fext, *dirparts: os.path.join(*dirparts, flnm + fext)
+
+
+class JsonMask():
+    """Mask saved as image with some editing work.
+    
+    """
+    blobdir = "regional_masks"
+    ext = ".png"
+    
+    def __init__(self, img):
+        self.img = img
+    
+    def makepath(self, name):
+        pt = fimgpt(name, self.ext, PTPRESET, self.blobdir)
+        os.makedirs(os.path.dirname(pt), exist_ok = True)
+        return pt
+    
+    def save(self, name, preset = None):
+        """Save image to subdir.
+        
+        Only saved when in mask mode - Hardcoded, don't have a better idea atm.
+        """
+        if (preset is None) or (preset[1] == "Mask"): # Check mode.  
+            save_mask(self.img, self.makepath(name))
+            return name
+        return None
+    
+    def load(self, name, preset = None):
+        """Load image from subdir (no editing, that comes later).
+        
+        Prefer to use the given key, rather than name. SBM CONT: Load / save in dict mode? Debugging needed.
+        """
+        if name is None or self.img is None:
+            return None
+        return load_mask(self.makepath(self.img))
+
 fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 
@@ -507,6 +586,7 @@ fint = lambda x: int(x)
 fjstr = lambda x: x.strip()
 #fjbool = lambda x: (x.upper() == "TRUE" or x.upper() == "T")
 fjbool = lambda x: x # Json can store booleans reliably.
+fjmask = lambda x: draw_image(x, inddict = False)[0] # Ignore mask reset value. 
 
 # (json_name, value_format, default)
 # If default = none then will use current gradio value. 
@@ -523,20 +603,67 @@ PRESET_KEYS = [
 ("lnter", fjstr, "0") ,
 ("lnur", fjstr, "0") ,
 ("threshold", fjstr, "0") ,
+("polymask", fjmask, "") , # Mask has special corrections and logging.
 ]
 
+
+# (json_name,blob_class)
+# Handles save + lazy load of blob data outside of presets.
+BLOB_KEYS = {
+"polymask": JsonMask
+}
+
+def saveblob(preset):
+    """Preset variables saved externally (blob).
+    
+    Returns modified list containing the refernces instead of data.
+    Currently, this includes polymask, which is saved as an image,
+    with a filename = preset.
+    A blob class should contain a save method which returns the reference. 
+    """
+    preset = list(preset) # Tuples don't have copy.
+    for (i,(vkey,vfun,vdef)) in enumerate(PRESET_KEYS):
+        if vkey in BLOB_KEYS:
+            # Func should accept raw form and convert it to a class.
+            x = BLOB_KEYS[vkey](preset[i])
+            # Class should have a save func given identifier, returning an access key.
+            x = x.save(preset[0], preset)
+            # Update the preset.
+            preset[i] = x
+    return preset
+
+def loadblob(preset):
+    """Load blob presets based on key.
+    
+    Returns modified list containing the refernces instead of 
+    Currently, this includes polymask, which is saved as an image,
+    with a filename = preset.
+    A blob class should contain a load method which retrieves the data based on reference. 
+    """
+    for (vkey,vval) in BLOB_KEYS.items():
+        # Func should accept refrence form and convert it to a class.
+        x = vval(preset.get(vkey))
+        # Class should have a load func given identifier, returning data.
+        x = x.load(preset["name"], preset)
+        # Update the preset.
+        preset[vkey] = x
+    return preset
 
 def savepresets(*settings):
     # NAME must come first.
     name = settings[0]
-    path_root = modules.scripts.basedir()
-    filepath = os.path.join(path_root, "scripts", "regional_prompter_presets.json")
+    settings = saveblob(settings)
+    
+    # path_root = modules.scripts.basedir()
+    # filepath = os.path.join(path_root, "scripts", "regional_prompter_presets.json")
+    filepath = os.path.join(PTPRESET, FLJSON)
 
     try:
         with open(filepath, mode='r', encoding="utf-8") as f:
             # presets = json.loads(json.load(f))
             presets = json.load(f)
             pr = {PRESET_KEYS[i][0]:settings[i] for i,_ in enumerate(PRESET_KEYS)}
+            # SBM Ordereddict might be better than list, quick search.
             written = False
             # if name == "lastrun": # SBM We should check the preset is unique in any case.
             for i, preset in enumerate(presets):
@@ -555,6 +682,21 @@ def savepresets(*settings):
     presets = loadpresets(filepath)
     return gr.update(choices=[pr["name"] for pr in presets])
 
+def presetfallback():
+    """Swaps main json dir to alt if exists, attempts reload.
+    
+    """
+    global PTPRESET
+    global PTPRESETALT
+    
+    if PTPRESETALT is not None:
+        print("Unknown preset error, fallback.")
+        PTPRESET = PTPRESETALT
+        PTPRESETALT = None
+        return loadpresets(PTPRESET)
+    else: # Already attempted swap.
+        print("Presets could not be loaded.") 
+        return None
 
 def loadpresets(filepath):
     presets = []
@@ -562,18 +704,17 @@ def loadpresets(filepath):
         with open(filepath, encoding="utf-8") as f:
             # presets = json.loads(json.load(f))
             presets = json.load(f)
+            # presets = loadblob(presets) # DO NOT load all blobs - that's the point.
     except OSError as e:
         print("Init / preset error.")
         presets = initpresets(filepath)
     except TypeError:
-        print("Corrupted file, resetting.")
+        print("Corrupted preset file, resetting.")
         presets = initpresets(filepath)
     except JSONDecodeError:
-        print("Json file could not be decoded.")
+        print("Preset file could not be decoded.")
         presets = initpresets(filepath)
-        
     return presets
-
 
 def initpresets(filepath):
     lpr = PRESETS
@@ -589,7 +730,7 @@ def initpresets(filepath):
             json.dump(lprj, f, indent = 2)
             return lprj
     except Exception as e:
-        return None
+        return presetfallback()
 
 def debugall(self):
     print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
@@ -623,7 +764,7 @@ def keyconverter(aratios,mode,usecom,usebase,p):
     '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
     keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
     keychanger = keychanger[:-1]
-    print(keychanger,p.prompt)
+    #print(keychanger,p.prompt)
     for change in keychanger:
         if change == KEYCOMM and KEYCOMM in p.prompt: continue
         if change == KEYBASE and KEYBASE in p.prompt: continue
