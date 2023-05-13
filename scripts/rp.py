@@ -4,7 +4,7 @@ from pprint import pprint
 import gradio as gr
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
-from modules import paths, scripts, shared
+from modules import paths, scripts, shared, extra_networks
 from modules.processing import Processed
 from modules.script_callbacks import (CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import scripts.attention
@@ -477,7 +477,8 @@ def anddealer(self, p, calcmode):
 
 
 def tokendealer(self, p, seps):
-    ppl = p.all_prompts[0].split(seps)
+    text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
+    ppl = text.split(seps)
     npl = p.all_negative_prompts[0].split(seps)
     targets =[p.split(",")[-1] for p in ppl[1:]]
     pt, nt, ppt, pnt, tt = [], [], [], [], []
@@ -497,8 +498,9 @@ def tokendealer(self, p, seps):
             i = 1
             tlist = []
             while ttokens[0].tokens[i] != 49407:
-                if ttokens[0].tokens[i] in ptokens[0].tokens:
-                    tlist.append(ptokens[0].tokens.index(ttokens[0].tokens[i]))
+                for (j, maintok) in enumerate(ptokens): # SBM Long prompt.
+                    if ttokens[0].tokens[i] in maintok.tokens:
+                        tlist.append(maintok.tokens.index(ttokens[0].tokens[i]) + 75 * j)
                 i += 1
             if tlist != [] : tt.append(tlist)
 
