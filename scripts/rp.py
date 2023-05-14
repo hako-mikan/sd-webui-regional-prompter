@@ -117,7 +117,7 @@ class Script(modules.scripts.Script):
 
         presets = loadpresets(filepath)
 
-        with gr.Accordion("Regional Prompter", open=False):
+        with gr.Accordion("Regional Prompter", open=False, elem_id="RP_main"):
             with gr.Row():
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
             with gr.Row():
