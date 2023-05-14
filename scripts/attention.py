@@ -94,8 +94,8 @@ def hook_forward(self, module):
             print("tokens : ", context.size())
             print("module : ", module.lora_layer_name)
 
-        if not self.calced and "diffusion_model_output_blocks_11_1_transformer_blocks_0_attn2" == module.lora_layer_name:
-            self.calced = True
+        # if not self.calced and "diffusion_model_output_blocks_11_1_transformer_blocks_0_attn2" == module.lora_layer_name:
+        #     self.calced = True
 
         height = self.h
         width = self.w
