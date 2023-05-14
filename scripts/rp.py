@@ -49,7 +49,7 @@ def lange(l):
 
 orig_batch_cond_uncond = shared.batch_cond_uncond
 
-PRESETS =[
+PRESETSDEF =[
     ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
     ["Horizontal-3", "Horizontal",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
     ["Horizontal-7", "Horizontal",'1,1,1,1,1,1,1',"0.2",True,False,False,"Attention",False,"0","0"],
@@ -116,6 +116,7 @@ class Script(modules.scripts.Script):
         presets = []
 
         presets = loadpresets(filepath)
+        presets = LPRESET.update(presets)
 
         with gr.Accordion("Regional Prompter", open=False, elem_id="RP_main"):
             with gr.Row():
@@ -160,7 +161,7 @@ class Script(modules.scripts.Script):
 
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
-                    availablepresets = gr.Dropdown(label="Presets", choices=[pr["name"] for pr in presets], type="index")
+                    availablepresets = gr.Dropdown(label="Presets", choices=presets, type="index")
                     applypresets = gr.Button(value="Apply Presets",variant='primary',elem_id="RP_applysetting")
                 with gr.Row():
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
@@ -209,12 +210,11 @@ class Script(modules.scripts.Script):
             preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
             return preset
-        
 
         maketemp.click(fn=makeimgtmp, inputs =[ratios,mode,usecom,usebase],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
-                
+        
         return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
 
     def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
@@ -339,7 +339,6 @@ class Script(modules.scripts.Script):
         self = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
         self, p = thresholddealer(self, p, threshold)                          #set threshold
         self = bratioprompt(self, bratios)
-                  
 
         print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
         if debug : debugall(self)
@@ -401,7 +400,6 @@ class Script(modules.scripts.Script):
         if self.debug : debugall(self)
 
         unloader(self, p)
-
 
     def denoiser_callback(self, params: CFGDenoiserParams):
         denoiser_callback_s(self, params)
@@ -542,10 +540,32 @@ def bratioprompt(self, bratios):
     self.bratios = bratios
     return self
 #####################################################
-##### Save  and Load Settings
+##### Presets - Save  and Load Settings
 
 fimgpt = lambda flnm, fext, *dirparts: os.path.join(*dirparts, flnm + fext)
 
+class PresetList():
+    """Preset list must be the same object throughout its lifetime, otherwise updates will err.
+
+    See gradio issue #4210 for details.
+    """
+    def __init__(self):
+        self.lpr = []
+    
+    def update(self, newpr):
+        """Replace all values, return the reference.
+        
+        Will convert dicts to the names only.
+        Might be more efficient to add the new names only, but meh.
+        """
+        if len(newpr) > 0 and isinstance(newpr[0],dict):
+            newpr = [pr["name"] for pr in newpr] 
+        self.lpr.clear()
+        self.lpr.extend(newpr)
+        return self.lpr
+        
+    def get(self):
+        return self.lpr
 
 class JsonMask():
     """Mask saved as image with some editing work.
@@ -581,6 +601,8 @@ class JsonMask():
             return None
         return load_mask(self.makepath(self.img))
 
+LPRESET = PresetList()
+
 fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 
@@ -607,8 +629,6 @@ PRESET_KEYS = [
 ("threshold", fjstr, "0") ,
 ("polymask", fjmask, "") , # Mask has special corrections and logging.
 ]
-
-
 # (json_name,blob_class)
 # Handles save + lazy load of blob data outside of presets.
 BLOB_KEYS = {
@@ -682,7 +702,8 @@ def savepresets(*settings):
         print(e)
 
     presets = loadpresets(filepath)
-    return gr.update(choices=[pr["name"] for pr in presets])
+    presets = LPRESET.update(presets)
+    return gr.update(choices=presets)
 
 def presetfallback():
     """Swaps main json dir to alt if exists, attempts reload.
@@ -719,7 +740,7 @@ def loadpresets(filepath):
     return presets
 
 def initpresets(filepath):
-    lpr = PRESETS
+    lpr = PRESETSDEF
     # if not os.path.isfile(filepath):
     try:
         with open(filepath, mode='w', encoding="utf-8") as f:
