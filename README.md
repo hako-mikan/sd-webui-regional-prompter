@@ -88,7 +88,7 @@ In order to specify both horizontal and vertical regions, see 2D region mode.
 ### Attention  
 Normally, use this one.  
 ### Latent
-Slower, but allows separating LoRAs to some extent. The generation time is the number of areas x the generation time of one pic.
+Slower, but allows separating LoRAs to some extent. The generation time is the number of areas x the generation time of one pic. See [known issues](#knownissues).
 
 Example of Latent mode for [nendoorid](https://civitai.com/models/7269/nendoroid-figures-lora),
 [figma](https://civitai.com/models/7984/figma-anime-figures) LoRA separated into left and right sides to create.  
