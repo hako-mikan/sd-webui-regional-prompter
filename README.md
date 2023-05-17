@@ -290,7 +290,7 @@ The extension cannot perform this override automatically, because gradio doesn't
 3) It has been suggested that [lora block weight](https://github.com/hako-mikan/sd-webui-lora-block-weight) can help.
 4) If all else fails, inpaint.
 Here are samples of a simple prompt, two loras with negative te/unet values per lora of: (0,0) default, (1,0), (0,1), (1,1).
-![MeguminMigurdiaCmp](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/MeguminMigurdiaCmp.png)
+![MeguminMigurdiaCmp](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/MeguminMigurdiaCmp.jpg)
 If you come across any useful insights on the phenomenon, do share.
 
 ## Acknowledgments
