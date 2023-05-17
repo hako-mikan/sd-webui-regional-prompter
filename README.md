@@ -282,8 +282,10 @@ The immediate strength that corresponds to the target should be stronger than no
             if x is not None and isinstance(x, str):
                 x = {"image":x, "mask": x[:]}
 ```
-The extension cannot perform this override automatically, because gradio doesn't currently support [custom components](https://github.com/gradio-app/gradio/issues/1432). Attempting to override the component / method in the extension causes the application to not load at all. 
+The extension cannot perform this override automatically, because gradio doesn't currently support [custom components](https://github.com/gradio-app/gradio/issues/1432). Attempting to override the component / method in the extension causes the application to not load at all.
+
 3) Wait until a fix is published.
+
 - Lora corruption in latent mode. Some attempts have been made to improve the output, but no solution as of yet. Suggestions below.
 1) Reduce cfg, reduce lora weight, increase sampling steps.
 2) Use the `negative textencoder` + `negative U-net` parameters: these are weights between 0 and 1, comma separated like base. One is applied to each lora in order of appearance in the prompt. A value of 0 (the default) will negate the effect of the lora on other regions, but may cause it to be corrupted. A value of 1 should be closer to the natural effect, but may corrupt other regions (greenout, blackout etc), even if they don't contain any loras. In both cases, a higher lora weight amplifies the effect. The effect seems to vary per lora, possibly per combination.
@@ -291,6 +293,7 @@ The extension cannot perform this override automatically, because gradio doesn't
 4) If all else fails, inpaint.
 Here are samples of a simple prompt, two loras with negative te/unet values per lora of: (0,0) default, (1,0), (0,1), (1,1).
 ![MeguminMigurdiaCmp](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/MeguminMigurdiaCmp.jpg)
+
 If you come across any useful insights on the phenomenon, do share.
 
 ## Acknowledgments
