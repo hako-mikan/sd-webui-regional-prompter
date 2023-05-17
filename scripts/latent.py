@@ -186,6 +186,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
 def lora_namer(self, p, lnter, lnur):
     ldict = {}
+    lorder = [] # Loras call order for matching with u/te lists.
     import lora as loraclass
     for lora in loraclass.loaded_loras:
         ldict[lora.name] = lora.multiplier
@@ -200,6 +201,8 @@ def lora_namer(self, p, lnter, lnur):
         tdict = {}
 
         for called in calledloras:
+            if called.items[0] not in lorder:
+                lorder.append(called.items[0])
             names = names + called.items[0]
             tdict[called.items[0]] = called.items[1]
 
@@ -217,7 +220,7 @@ def lora_namer(self, p, lnter, lnur):
     u_llist.append(llist[0].copy())
     regioner.te_llist = llist
     regioner.u_llist = u_llist
-    regioner.ndeleter(lnter, lnur)
+    regioner.ndeleter(lnter, lnur, lorder)
     if self.debug:
         print("LoRA regioner : TE list",regioner.te_llist)
         print("LoRA regioner : U list",regioner.u_llist)
@@ -289,11 +292,37 @@ class LoRARegioner:
         self.u_llist = [{}]
         self.mlist = {}
 
-    def ndeleter(self, lnter, lnur):
-        for key in self.te_llist[0].keys():
-            self.te_llist[0][key] = floatdef(lnter, 0)
-        for key in self.u_llist[-1].keys():
-            self.u_llist[-1][key] = floatdef(lnur, 0)
+    def expand_del(self, val, lorder):
+        """Broadcast single / comma separated val to lora list. 
+        
+        """
+        lval = val.split(",")
+        if len(lval) > len(lorder):
+            lval = lval[:len(lorder)]
+        lval = [floatdef(v, 0) for v in lval]
+        if len(lval) < len(lorder): # Propagate difference.
+            lval.extend([lval[-1]] * (len(lorder) - len(lval)))
+        return lval
+
+    def ndeleter(self, lnter, lnur, lorder = None):
+        """Multiply global weights by 0:1 factor.
+        
+        Can be any value, negative too, but doesn't help much.
+        """
+        if lorder is None:
+            lkeys = self.te_llist[0].keys()
+        else:
+            lkeys = lorder
+        lnter = self.expand_del(lnter, lkeys)
+        for (key, val) in zip(lkeys, lnter):
+            self.te_llist[0][key] *= val
+        if lorder is None:
+            lkeys = self.u_llist[-1].keys()
+        else:
+            lkeys = lorder
+        lnur = self.expand_del(lnur, lkeys)
+        for (key, val) in zip(lkeys, lnur):
+            self.u_llist[-1][key] *= val
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]

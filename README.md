@@ -276,13 +276,22 @@ The immediate strength that corresponds to the target should be stronger than no
 ## <a id="knownissues">Known issues</a>
 - Due to an [issue with gradio](https://github.com/gradio-app/gradio/issues/4088), uploading a mask or loading a mask preset more than twice in a row will fail. There are two workarounds for this:
 1) Before EVERY upload / load, press `create mask area`.
-2) Modify the code in gradio.components.Image.preprocess; add the following at the beginning of the function.
+2) Modify the code in gradio.components.Image.preprocess; add the following at the beginning of the function (temporarily):
 ```
         if self.tool == "sketch" and self.source in ["upload", "webcam"]:
             if x is not None and isinstance(x, str):
                 x = {"image":x, "mask": x[:]}
 ```
-The extension cannot perform this override automatically, because gradio doesn't currently support [custom components](https://github.com/gradio-app/gradio/issues/1432). Attempting to override the component / method in the extension causes the application to not load at all.
+The extension cannot perform this override automatically, because gradio doesn't currently support [custom components](https://github.com/gradio-app/gradio/issues/1432). Attempting to override the component / method in the extension causes the application to not load at all. 
+3) Wait until a fix is published.
+- Lora corruption in latent mode. Some attempts have been made to improve the output, but no solution as of yet. Suggestions below.
+1) Reduce cfg, reduce lora weight, increase sampling steps.
+2) Use the `negative textencoder` + `negative U-net` parameters: these are weights between 0 and 1, comma separated like base. One is applied to each lora in order of appearance in the prompt. A value of 0 (the default) will negate the effect of the lora on other regions, but may cause it to be corrupted. A value of 1 should be closer to the natural effect, but may corrupt other regions (greenout, blackout etc), even if they don't contain any loras. In both cases, a higher lora weight amplifies the effect. The effect seems to vary per lora, possibly per combination.
+3) It has been suggested that [lora block weight](https://github.com/hako-mikan/sd-webui-lora-block-weight) can help.
+4) If all else fails, inpaint.
+Here are samples of a simple prompt, two loras with negative te/unet values per lora of: (0,0) default, (1,0), (0,1), (1,1).
+![MeguminMigurdiaCmp](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/MeguminMigurdiaCmp.png)
+If you come across any useful insights on the phenomenon, do share.
 
 ## Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
