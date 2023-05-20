@@ -21,9 +21,12 @@ def setloradevice(self):
     regioner.__init__()
     import lora
     if self.debug : print("change LoRA device for new lora")
+    lid = 0
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
         for l in lora.loaded_loras:
-            l.name = l.name + "added_by_regional_prompter" + str(random.random())
+            lid = lid + 1 
+            # l.name = l.name + "added_by_regional_prompter" + str(random.random())
+            l.name = l.name + "added_by_regional_prompter" + str(lid)
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
 
@@ -205,8 +208,6 @@ def lora_namer(self, p, lnter, lnur):
         tdict = {}
 
         for called in calledloras:
-            if called.items[0] not in lorder:
-                lorder.append(called.items[0])
             names = names + called.items[0]
             tdict[called.items[0]] = called.items[1]
 
@@ -214,9 +215,12 @@ def lora_namer(self, p, lnter, lnur):
             shin_key = flokey(key)
             if shin_key in names:
                 llist[i+1][key] = float(tdict[shin_key])
+                if key not in lorder:
+                    lorder.append(key)
             else:
                 llist[i+1][key] = 0
                 
+    if self.debug: print("Regioner lorder: ",lorder)
     global regioner
     regioner.__init__()
     u_llist = [d.copy() for d in llist[1:]]
@@ -318,14 +322,14 @@ class LoRARegioner:
             lkeys = lorder
         lnter = self.expand_del(lnter, lkeys)
         for (key, val) in zip(lkeys, lnter):
-            self.te_llist[0][flokey(key)] *= val
+            self.te_llist[0][key] *= val
         if lorder is None:
             lkeys = self.u_llist[-1].keys()
         else:
             lkeys = lorder
         lnur = self.expand_del(lnur, lkeys)
         for (key, val) in zip(lkeys, lnur):
-            self.u_llist[-1][flokey(key)] *= val
+            self.u_llist[-1][key] *= val
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
