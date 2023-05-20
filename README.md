@@ -291,6 +291,7 @@ The extension cannot perform this override automatically, because gradio doesn't
 2) Use the `negative textencoder` + `negative U-net` parameters: these are weights between 0 and 1, comma separated like base. One is applied to each lora in order of appearance in the prompt. A value of 0 (the default) will negate the effect of the lora on other regions, but may cause it to be corrupted. A value of 1 should be closer to the natural effect, but may corrupt other regions (greenout, blackout, SBAHJified etc), even if they don't contain any loras. In both cases, a higher lora weight amplifies the effect. The effect seems to vary per lora, possibly per combination.
 3) It has been suggested that [lora block weight](https://github.com/hako-mikan/sd-webui-lora-block-weight) can help.
 4) If all else fails, inpaint.
+
 Here are samples of a simple prompt, two loras with negative te/unet values per lora of: (0,0) default, (1,0), (0,1), (1,1).
 ![MeguminMigurdiaCmp](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/MeguminMigurdiaCmp.jpg)
 
