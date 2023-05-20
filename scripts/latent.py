@@ -184,6 +184,10 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 ######################################################
 ##### Latent Method
 
+# Remove tags from called lora names.
+flokey = lambda x: (x.split("added_by_regional_prompter")[0]
+                    .split("added_by_lora_block_weight")[0])
+
 def lora_namer(self, p, lnter, lnur):
     ldict = {}
     lorder = [] # Loras call order for matching with u/te lists.
@@ -207,8 +211,7 @@ def lora_namer(self, p, lnter, lnur):
             tdict[called.items[0]] = called.items[1]
 
         for key in llist[i].keys():
-            shin_key = key.split("added_by_regional_prompter")[0]
-            shin_key = shin_key.split("added_by_lora_block_weight")[0]
+            shin_key = flokey(key)
             if shin_key in names:
                 llist[i+1][key] = float(tdict[shin_key])
             else:
@@ -315,14 +318,14 @@ class LoRARegioner:
             lkeys = lorder
         lnter = self.expand_del(lnter, lkeys)
         for (key, val) in zip(lkeys, lnter):
-            self.te_llist[0][key] *= val
+            self.te_llist[0][flokey(key)] *= val
         if lorder is None:
             lkeys = self.u_llist[-1].keys()
         else:
             lkeys = lorder
         lnur = self.expand_del(lnur, lkeys)
         for (key, val) in zip(lkeys, lnur):
-            self.u_llist[-1][key] *= val
+            self.u_llist[-1][flokey(key)] *= val
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
