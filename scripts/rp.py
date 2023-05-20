@@ -6,7 +6,8 @@ import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared, extra_networks
 from modules.processing import Processed
-from modules.script_callbacks import (CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
+from modules.script_callbacks import (on_ui_settings,
+                                      CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import scripts.attention
 import scripts.latent
 import scripts.regions
@@ -394,7 +395,7 @@ class Script(modules.scripts.Script):
                 processedx = Processed(p, [], p.seed, "")
                 file.write(processedx.infotext(p, 0))
         
-        if self.modep:
+        if self.modep and not fseti("hidepmask"):
             savepmasks(self, processed)
 
         if self.debug : debugall(self)
@@ -755,6 +756,76 @@ def initpresets(filepath):
     except Exception as e:
         return presetfallback()
 
+#####################################################
+##### Global settings
+
+EXTKEY = "regprp"
+EXTNAME = "Regional Prompter"
+# (id, label, type, extra_parms)
+EXTSETS = [
+("debug", "Enable debug mode", "check", dict()),
+("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
+
+]
+# Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
+# (id: def)
+DEXTSETV = dict()
+fseti = lambda x: shared.opts.data.get(EXTKEY + "_" + x, DEXTSETV[x])
+
+class Setting_Component():
+    """Creates gradio components with some standard req values.
+    
+    All must supply an id (used in code), label, component type. 
+    Default value and specific type settings can be overridden. 
+    """
+    section = (EXTKEY, EXTNAME)
+    def __init__(self, cid, clabel, ctyp, vdef = None, **kwargs):
+        self.cid = EXTKEY + "_" + cid
+        self.clabel = clabel
+        self.ctyp = ctyp
+        method = getattr(self, self.ctyp)
+        method(**kwargs)
+        if vdef is not None:
+            self.vdef = vdef
+        
+    def get(self):
+        """Get formatted setting.
+        
+        Input for shared.opts.add_option().
+        """
+        if self.ctyp == "textb":
+            return (self.cid, shared.OptionInfo(self.vdef, self.clabel, section = self.section))
+        return (self.cid, shared.OptionInfo(self.vdef, self.clabel,
+                                            self.ccomp, self.cparms, section = self.section))
+    
+    def textb(self, **kwargs):
+        """Textbox unusually requires no component.
+        
+        """
+        self.ccomp = gr.Textbox
+        self.vdef = ""
+        self.cparms = {}
+        self.cparms.update(kwargs)
+    
+    def check(self, **kwargs):
+        self.ccomp = gr.Checkbox
+        self.vdef = False
+        self.cparms = {"interactive": True}
+        self.cparms.update(kwargs)
+        
+    def slider(self, **kwargs):
+        self.ccomp = gr.Slider
+        self.vdef = 0
+        self.cparms = {"minimum": 1, "maximum": 10, "step": 1}
+        self.cparms.update(kwargs)
+
+def ext_on_ui_settings():
+    for (cid, clabel, ctyp, kwargs) in EXTSETS:
+        comp = Setting_Component(cid, clabel, ctyp, **kwargs)
+        opt = comp.get()
+        shared.opts.add_option(*opt)
+        DEXTSETV[cid] = comp.vdef
+
 def debugall(self):
     print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
     print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
@@ -794,3 +865,5 @@ def keyconverter(aratios,mode,usecom,usebase,p):
         p.prompt= p.prompt.replace(KEYBRK,change,1)
 
     return p
+
+on_ui_settings(ext_on_ui_settings)
