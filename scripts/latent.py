@@ -16,17 +16,23 @@ orig_lora_Conv2d_forward = None
 lactive = False
 labug =False
 pactive = False
+MINID = 1000
+MAXID = 10000
+LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
 
 def setloradevice(self):
+    global LORAID
     regioner.__init__()
     import lora
     if self.debug : print("change LoRA device for new lora")
-    lid = 0
+    
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
         for l in lora.loaded_loras:
-            lid = lid + 1 
+            LORAID = LORAID + 1
+            if LORAID > MAXID:
+                LORAID = MINID
             # l.name = l.name + "added_by_regional_prompter" + str(random.random())
-            l.name = l.name + "added_by_regional_prompter" + str(lid)
+            l.name = l.name + "added_by_regional_prompter" + str(LORAID)
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
 
