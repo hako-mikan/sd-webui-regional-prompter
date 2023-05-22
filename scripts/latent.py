@@ -123,7 +123,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         
             att.maskready = True
 
-    if lactive or self.lpactive:
+    if self.lactive or self.lpactive:
         xt = params.x.clone()
         ict = params.image_cond.clone()
         st =  params.sigma.clone()
@@ -142,7 +142,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                     params.text_cond[b+a*self.batch_size] = ct[a + b * areas]
 
 def denoised_callback_s(self, params: CFGDenoisedParams):
-    if lactive or self.lpactive:
+    if self.lactive or self.lpactive:
         x = params.x
         xt = params.x.clone()
         batch = self.batch_size
