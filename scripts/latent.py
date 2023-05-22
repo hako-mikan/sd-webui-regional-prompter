@@ -16,14 +16,23 @@ orig_lora_Conv2d_forward = None
 lactive = False
 labug =False
 pactive = False
+MINID = 1000
+MAXID = 10000
+LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
 
 def setloradevice(self):
+    global LORAID
     regioner.__init__()
     import lora
     if self.debug : print("change LoRA device for new lora")
+    
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
         for l in lora.loaded_loras:
-            l.name = l.name + "added_by_regional_prompter" + str(random.random())
+            LORAID = LORAID + 1
+            if LORAID > MAXID:
+                LORAID = MINID
+            # l.name = l.name + "added_by_regional_prompter" + str(random.random())
+            l.name = l.name + "added_by_regional_prompter" + str(LORAID)
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
 
@@ -184,6 +193,10 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 ######################################################
 ##### Latent Method
 
+# Remove tags from called lora names.
+flokey = lambda x: (x.split("added_by_regional_prompter")[0]
+                    .split("added_by_lora_block_weight")[0])
+
 def lora_namer(self, p, lnter, lnur):
     ldict = {}
     lorder = [] # Loras call order for matching with u/te lists.
@@ -201,19 +214,19 @@ def lora_namer(self, p, lnter, lnur):
         tdict = {}
 
         for called in calledloras:
-            if called.items[0] not in lorder:
-                lorder.append(called.items[0])
             names = names + called.items[0]
             tdict[called.items[0]] = called.items[1]
 
         for key in llist[i].keys():
-            shin_key = key.split("added_by_regional_prompter")[0]
-            shin_key = shin_key.split("added_by_lora_block_weight")[0]
+            shin_key = flokey(key)
             if shin_key in names:
                 llist[i+1][key] = float(tdict[shin_key])
+                if key not in lorder:
+                    lorder.append(key)
             else:
                 llist[i+1][key] = 0
                 
+    if self.debug: print("Regioner lorder: ",lorder)
     global regioner
     regioner.__init__()
     u_llist = [d.copy() for d in llist[1:]]
