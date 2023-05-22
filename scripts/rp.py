@@ -315,6 +315,9 @@ class Script(modules.scripts.Script):
                 setuploras(self,p)
                 if self.debug : print(p.prompt)
                 seps = "AND"
+                # SBM It is vital to use local activation because callback registration is permanent,
+                # and there are multiple script instances (txt2img / img2img). 
+                self.lactive = True
 
             # seps = KEYBRK # SBM No longer is keybrk applied first.
 
