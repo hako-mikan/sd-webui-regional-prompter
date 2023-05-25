@@ -62,6 +62,7 @@ ATTNSCALE = 8 # Initial image compression in attention layers.
 def ui_tab(mode, submode):
     """Structures components for mode tab.
     
+    Semi harcoded but it's clearer this way.
     """
     vret = None
     if mode == "Matrix":
@@ -111,7 +112,7 @@ def ui_tab(mode, submode):
 
     return vret
             
-# modes, submodes. Order must be maintained so dict is inadequate.
+# modes, submodes. Order must be maintained so dict is inadequate. Must have submode for component consistency.
 RPMODES = [
 ("Matrix", ("Horizontal","Vertical")),
 ("Mask", ("Mask",)),
@@ -120,9 +121,9 @@ RPMODES = [
 fgrprop = lambda x: {"label": x, "id": "t" + x, "elem_id": "RP_" + x}
 
 def mode2tabs(mode):
-    """Converts mode (in json) to gradio tab + submodes.
+    """Converts mode (in preset) to gradio tab + submodes.
     
-    I dunno if it's possible to nest components or make them optional,
+    I dunno if it's possible to nest components or make them optional (probably not),
     so this is the best we can do.
     """
     vret = ["Nope"] + [None] * len(RPMODES)
@@ -143,7 +144,7 @@ def tabs2mode(tab, *submode):
     return "Nope"
     
 def expand_components(l):
-    """
+    """Converts json preset to component format.
     
     Assumes mode is the first value in list.
     """
@@ -152,7 +153,7 @@ def expand_components(l):
     return tabs + l[1:]
 
 def compress_components(l):
-    """
+    """Converts component values to preset format.
     
     Assumes tab + submodes are the first values in list.
     """
@@ -233,34 +234,8 @@ class Script(modules.scripts.Script):
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
-            # with gr.Row():
-            #     with gr.Column():
-            #         maketemp = gr.Button(value="visualize and make template")
-            #         template = gr.Textbox(label="template",interactive=True,visible=True)
-            #     with gr.Column():
-            #         areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
-            #         threshold = gr.Textbox(label = "threshold",value = 0.4,interactive=True,)
-            #
-            # with gr.Row():
-            #     polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
-            #                         source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
-            # with gr.Row():
-            #     with gr.Column():
-            #         num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
-            #         canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
-            #         canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
-            #         btn = gr.Button(value = "Draw region + show mask")
-            #         # btn2 = gr.Button(value = "Display mask") # Not needed.
-            #         cbtn = gr.Button(value="Create mask area")
-            #     with gr.Column():
-            #         showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
-            #         # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
-            #         uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
-            # btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
-            # # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
-            # cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
-            # uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
             
+            # Tabbed modes.
             with gr.Tabs(elem_id="RP_mode"):
                 rp_selected_tab = gr.State("Matrix") # State component to document current tab for gen.
                 # ltabs = []
@@ -272,6 +247,7 @@ class Script(modules.scripts.Script):
                     # Tab switch tags state component.
                     tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
             
+            # Hardcode expansion back to components for any specific events.
             (mmode, ratios, maketemp, template, areasimg) = ltabp[0]
             (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
             (pmode, threshold) = ltabp[2]
@@ -364,7 +340,7 @@ class Script(modules.scripts.Script):
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
-                })
+        })
 
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
                      usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
@@ -896,7 +872,7 @@ EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
 EXTSETS = [
-("debug", "Enable debug mode", "check", dict()),
+("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
 
 ]
