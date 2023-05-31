@@ -59,108 +59,6 @@ PRESETSDEF =[
 
 ATTNSCALE = 8 # Initial image compression in attention layers.
 
-def ui_tab(mode, submode):
-    """Structures components for mode tab.
-    
-    Semi harcoded but it's clearer this way.
-    """
-    vret = None
-    if mode == "Matrix":
-        with gr.Row():
-            mmode = gr.Radio(label="Split mode", choices=submode, value="Horizontal", type="value", interactive=True)
-            ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
-        with gr.Row():
-            with gr.Column():
-                maketemp = gr.Button(value="visualize and make template")
-                template = gr.Textbox(label="template",interactive=True,visible=True)
-            with gr.Column():
-                areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
-                    
-        # Need to add maketemp function based on base / common checks.
-        vret = [mmode, ratios, maketemp, template, areasimg]
-    elif mode == "Mask":
-        with gr.Row(): # Creep: Placeholder, should probably make this invisible.
-            xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True)
-        with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
-            polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
-                                source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
-        with gr.Row():
-            with gr.Column():
-                num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
-                canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
-                canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
-                btn = gr.Button(value = "Draw region + show mask")
-                # btn2 = gr.Button(value = "Display mask") # Not needed.
-                cbtn = gr.Button(value="Create mask area")
-            with gr.Column():
-                showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
-                # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
-                uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
-        # btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
-        btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
-        # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
-        cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
-        uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
-        
-        vret = [xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask]
-    elif mode == "Prompt":
-        with gr.Row():
-            pmode = gr.Radio(label="Prompt mode", choices=submode, value="Prompt", type="value", interactive=True)
-            threshold = gr.Textbox(label = "threshold", value = 0.4, interactive=True)
-        
-        vret = [pmode, threshold]
-
-    return vret
-            
-# modes, submodes. Order must be maintained so dict is inadequate. Must have submode for component consistency.
-RPMODES = [
-("Matrix", ("Horizontal","Vertical")),
-("Mask", ("Mask",)),
-("Prompt", ("Prompt", "Prompt-Ex")),
-]
-fgrprop = lambda x: {"label": x, "id": "t" + x, "elem_id": "RP_" + x}
-
-def mode2tabs(mode):
-    """Converts mode (in preset) to gradio tab + submodes.
-    
-    I dunno if it's possible to nest components or make them optional (probably not),
-    so this is the best we can do.
-    """
-    vret = ["Nope"] + [None] * len(RPMODES)
-    for (i,(k,v)) in enumerate(RPMODES):
-        if mode in v:
-            vret[0] = k
-            vret[i + 1] = mode
-    return vret
-    
-def tabs2mode(tab, *submode):
-    """Converts ui tab + submode list to a single value mode.
-    
-    Picks current submode based on tab, nothing clever. Submodes must be unique.
-    """
-    for (i,(k,_)) in enumerate(RPMODES):
-        if tab == k:
-            return submode[i]
-    return "Nope"
-    
-def expand_components(l):
-    """Converts json preset to component format.
-    
-    Assumes mode is the first value in list.
-    """
-    l = list(l) # Tuples cannot be altered.
-    tabs = mode2tabs(l[0])
-    return tabs + l[1:]
-
-def compress_components(l):
-    """Converts component values to preset format.
-    
-    Assumes tab + submodes are the first values in list.
-    """
-    l = list(l)
-    mode = tabs2mode(*l[:len(RPMODES) + 1])
-    return [mode] + l[len(RPMODES) + 1:]
-    
 class Script(modules.scripts.Script):
     def __init__(self):
         self.active = False
@@ -225,33 +123,43 @@ class Script(modules.scripts.Script):
             with gr.Row():
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
             with gr.Row():
-                # mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
+                mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
                 calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
             with gr.Row(visible=True):
-                # ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
+                ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
                 baseratios = gr.Textbox(label="Base Ratio", lines=1,value="0.2",interactive=True,  elem_id="RP_base_ratio", visible=True)
             with gr.Row():
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
-            
-            # Tabbed modes.
-            with gr.Tabs(elem_id="RP_mode"):
-                rp_selected_tab = gr.State("Matrix") # State component to document current tab for gen.
-                # ltabs = []
-                ltabp = []
-                for (i, (md,smd)) in enumerate(RPMODES):
-                    with gr.TabItem(**fgrprop(md)) as tab: # Tabs with a formatted id.
-                        # ltabs.append(tab)
-                        ltabp.append(ui_tab(md, smd))
-                    # Tab switch tags state component.
-                    tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
-            
-            # Hardcode expansion back to components for any specific events.
-            (mmode, ratios, maketemp, template, areasimg) = ltabp[0]
-            (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
-            (pmode, threshold) = ltabp[2]
-            
+            with gr.Row():
+                with gr.Column():
+                    maketemp = gr.Button(value="visualize and make template")
+                    template = gr.Textbox(label="template",interactive=True,visible=True)
+                with gr.Column():
+                    areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
+                    threshold = gr.Textbox(label = "threshold",value = 0.4,interactive=True,)
+
+            with gr.Row():
+                polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
+                                    source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")
+            with gr.Row():
+                with gr.Column():
+                    num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
+                    canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
+                    canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
+                    btn = gr.Button(value = "Draw region + show mask")
+                    # btn2 = gr.Button(value = "Display mask") # Not needed.
+                    cbtn = gr.Button(value="Create mask area")
+                with gr.Column():
+                    showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
+                    # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
+                    uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
+            btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
+            # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
+            cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
+            uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
+
             with gr.Accordion("Presets",open = False):
                 with gr.Row():
                     availablepresets = gr.Dropdown(label="Presets", choices=presets, type="index")
@@ -264,15 +172,11 @@ class Script(modules.scripts.Script):
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+            settings = [mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
         
         self.infotext_fields = [
                 (active, "RP Active"),
-                # (mode, "RP Divide mode"),
-                (rp_selected_tab, "RP Divide mode"),
-                (mmode, "RP Matrix submode"),
-                (xmode, "RP Mask submode"),
-                (pmode, "RP Prompt submode"),
+                (mode, "RP Divide mode"),
                 (calcmode, "RP Calc Mode"),
                 (ratios, "RP Ratios"),
                 (baseratios, "RP Base Ratios"),
@@ -293,7 +197,6 @@ class Script(modules.scripts.Script):
             
             SBM: The only way I know how to get the old values in gradio,
             is to pass them all as input.
-            Tab mode converts ui to single value.
             """
             # Need to swap all masked images to the source,
             # getting "valueerror: cannot process this value as image".
@@ -304,32 +207,25 @@ class Script(modules.scripts.Script):
             preset = loadblob(preset)
             preset = [fmt(preset.get(k, vdef)) for (k,fmt,vdef) in PRESET_KEYS]
             preset = preset[1:] # Remove name.
-            preset = expand_components(preset)
             # Change nulls to original value.
             preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
             return preset
 
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mode,usecom,usebase],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
-        return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+        return [active, debug, mode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
 
-    def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+    def process(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if not active:
             unloader(self,p)
             return p
 
         p.extra_generation_params.update({
             "RP Active":active,
-            # "RP Divide mode":mode,
-            "RP Divide mode": rp_selected_tab,
-            "RP Matrix submode": mmode,
-            "RP Mask submode": xmode,
-            "RP Prompt submode": pmode,
+            "RP Divide mode":mode,
             "RP Calc Mode":calcmode,
             "RP Ratios": aratios,
             "RP Base Ratios": bratios,
@@ -340,15 +236,13 @@ class Script(modules.scripts.Script):
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
-        })
+                })
 
-        savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
-                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
+        savepresets("lastrun",mode, aratios,bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
 
         self.__init__()
 
         self.active = True
-        self.mode = tabs2mode(rp_selected_tab, mmode, xmode, pmode)
         self.calcmode = calcmode
         self.debug = debug
         self.usebase = usebase
@@ -382,9 +276,11 @@ class Script(modules.scripts.Script):
                 self.hr_h = self.hr_h - self.hr_h % ATTNSCALE
                 self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
 
+        self.mode = mode
+
         self, p = flagfromkeys(self, p)
 
-        self.indmaskmode = (self.mode == "Mask")
+        self.indmaskmode = (mode == "Mask")
 
         if not nchangeand and "AND" in p.prompt.upper():
             p.prompt = p.prompt.replace("AND",KEYBRK)
@@ -393,12 +289,12 @@ class Script(modules.scripts.Script):
             self.anded = True
             
 
-        if "Prompt" not in self.mode: # skip region assign in prompt mode
-            self.cells = not "Mask" in self.mode
+        if "Prompt" not in mode: # skip region assign in prompt mode
+            self.cells = not "Mask" in mode
 
             #convert BREAK to ADDCOL/ADDROW
-            if KEYBRK in p.prompt and not "Mask" in self.mode:
-                p = keyconverter(aratios, self.mode, usecom, usebase, p)
+            if KEYBRK in p.prompt and not "Mask" in mode:
+                p = keyconverter(aratios, mode, usecom, usebase, p)
 
             ##### region mode
 
@@ -406,7 +302,7 @@ class Script(modules.scripts.Script):
                 self, p = inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt)
 
             elif self.cells:
-                self, p = matrixdealer(self, p, aratios, bratios, self.mode, usebase, comprompt,comnegprompt)
+                self, p = matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegprompt)
     
             ##### calcmode 
 
@@ -425,12 +321,12 @@ class Script(modules.scripts.Script):
 
             # seps = KEYBRK # SBM No longer is keybrk applied first.
 
-        elif "Prompt" in self.mode: #Prompt mode use both calcmode
+        elif "Prompt" in mode: #Prompt mode use both calcmode
             if not (KEYBRK in p.prompt.upper() or "AND" in p.prompt.upper() or KEYPROMPT in p.prompt.upper()):
                 self.active = False
                 unloader(self,p)
                 return
-            self.ex = "Ex" in self.mode
+            self.ex = "Ex" in mode
             self.modep = True
             if not usebase : bratios = "0"
             self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
@@ -451,11 +347,10 @@ class Script(modules.scripts.Script):
         print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
         if debug : debugall(self)
 
-    def before_process_batch(self, p, *args, **kwargs):
+    def before_process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         self.current_prompts = kwargs["prompts"].copy()
 
-    def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+    def process_batch(self, p, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         # print(kwargs["prompts"])
         if active:
             # SBM Before_process_batch was added in feb-mar, adding fallback.
@@ -478,7 +373,7 @@ class Script(modules.scripts.Script):
                     self.lora_applied = True
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
-    def postprocess_image(self, p, pp, *args, **kwargs):
+    def postprocess_image(self, p, pp, active, debug, mode, aratios, bratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if not self.active:
             return p
         # SBM I'm not sure if there's a prompt increment that isn't working, or that it must be done manually,
@@ -558,13 +453,13 @@ def commondealer(self, p, usecom, usencom):
         self.prompt = p.prompt = comadder(p.prompt)
         for pr in p.all_prompts:
             all_prompts.append(comadder(pr))
-        p.all_prompts = all_prompts
+        p.all_prompts = p.all_hr_prompts  = all_prompts
 
     if usencom:
         self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
             all_negative_prompts.append(comadder(pr))
-        p.all_negative_prompts = all_negative_prompts
+        p.all_negative_prompts = p.all_hr_negative_prompts = all_negative_prompts
         
     return self, p
 
@@ -783,7 +678,6 @@ def loadblob(preset):
 def savepresets(*settings):
     # NAME must come first.
     name = settings[0]
-    settings = [name] + compress_components(settings[1:])
     settings = saveblob(settings)
     
     # path_root = modules.scripts.basedir()
@@ -872,7 +766,7 @@ EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
 EXTSETS = [
-("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
+("debug", "Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
 
 ]
