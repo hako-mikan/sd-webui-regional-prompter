@@ -5,6 +5,7 @@ import gradio as gr
 import numpy as np
 import PIL
 import torch
+import os
 from modules import devices
 
 
@@ -267,8 +268,14 @@ def ratiosdealer(aratios2,aratios2r):
     aratios2r = list_rangify(aratios2r)
     return aratios2,aratios2r
 
+def get_font_path():
+    curdir = os.path.dirname(os.path.abspath(__file__))
+    fontDir = os.path.dirname(curdir)
+    fontName = "RobotoMono-Medium.ttf"
+    fontPath = os.path.join(fontDir, fontName)
+    return fontPath
 
-def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
+def makeimgtmp(aratios,mode,usecom,usebase,width = 128, height = 128,inprocess = False):
     indflip = (mode == "Vertical")
     if DELIMROW not in aratios: # Commas only - interpret as 1d.
         aratios2 = split_l2(aratios, DELIMROW, DELIMCOL, fmap = ffloatd(1), indflip = False)
@@ -279,7 +286,7 @@ def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
     # Change all splitters to breaks.
     (aratios2,aratios2r) = ratiosdealer(aratios2,aratios2r)
     
-    h = w = 128
+    w, h = width, height
     fx = np.zeros((h,w, 3), np.uint8)
     # Base image is coloured according to region divisions, roughly.
     for (i,ocell) in enumerate(aratios2r):
@@ -296,12 +303,14 @@ def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
         if sum(col) > 380:return "black"
         else:return "white"
     # Add region counters at the top left corner, coloured according to hue.
+    fontScale = max(width, height) / 128
+    font = PIL.ImageFont.truetype(get_font_path(), int(10 * fontScale))
     for (i,ocell) in enumerate(aratios2r):
         for icell in aratios2[i]: 
             if not indflip:
-                draw.text((int(w*icell[0]),int(h*ocell[0])),f"{c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]))
+                draw.text((int(w*icell[0]),int(h*ocell[0])),f"{c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]), font=font)
             else: 
-                draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
+                draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]), font=font)
             c += 1
     
     # Create ROW+COL template from regions.
