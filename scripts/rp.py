@@ -187,12 +187,6 @@ class Script(modules.scripts.Script):
         self.all_prompts = []
         self.all_negative_prompts = []
         self.imgcount = 0
-        # selected resolution
-        if not all(hasattr(self, attr) for attr in ["t2i_w","t2i_h","i2i_w","i2i_h"]):
-            self.t2i_w = None
-            self.t2i_h = None
-            self.i2i_w = None
-            self.i2i_h = None
         # for latent mode
         self.filters = []
         self.neg_filters = []
@@ -316,26 +310,12 @@ class Script(modules.scripts.Script):
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
             return preset
 
-        if is_img2img:
-            w, h = self.i2i_w, self.i2i_h
-        else:
-            w, h = self.t2i_w, self.t2i_h
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,w,h],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
         return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
-
-    def after_component(self, component, **kwargs):
-        if kwargs.get("elem_id") == "txt2img_width":
-            self.t2i_w = component
-        if kwargs.get("elem_id") == "txt2img_height":
-            self.t2i_h = component
-        if kwargs.get("elem_id") == "img2img_width":
-            self.i2i_w = component
-        if kwargs.get("elem_id") == "img2img_height":
-            self.i2i_h = component
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
