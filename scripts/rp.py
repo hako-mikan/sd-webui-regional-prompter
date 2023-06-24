@@ -447,6 +447,7 @@ class Script(modules.scripts.Script):
         self = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
         self, p = thresholddealer(self, p, threshold)                          #set threshold
         self = bratioprompt(self, bratios)
+        p = hrdealer(p)
 
         print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
         if debug : debugall(self)
@@ -476,6 +477,8 @@ class Script(modules.scripts.Script):
                     restoremodel(p)
                     denoiserdealer(self)
                     self.lora_applied = True
+            print(p.prompts)
+            print(p.hr_prompts)
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, *args, **kwargs):
@@ -558,16 +561,22 @@ def commondealer(self, p, usecom, usencom):
         self.prompt = p.prompt = comadder(p.prompt)
         for pr in p.all_prompts:
             all_prompts.append(comadder(pr))
-        p.all_prompts = p.all_hr_prompts = all_prompts
+        p.all_prompts = all_prompts
 
     if usencom:
         self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
             all_negative_prompts.append(comadder(pr))
-        p.all_negative_prompts = p.all_hr_negative_prompts = all_negative_prompts
+        p.all_negative_prompts = all_negative_prompts
         
     return self, p
 
+def hrdealer(p):
+    p.hr_prompts = p.prompts 
+    p.hr_negative_prompts = p.negative_prompts
+    p.all_hr_prompts = p.all_prompts
+    p.all_hr_negative_prompts = p.all_negative_prompts
+    return p
 
 def anddealer(self, p, calcmode):
     self.divide = p.prompt.count(KEYBRK)
