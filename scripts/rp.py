@@ -477,8 +477,6 @@ class Script(modules.scripts.Script):
                     restoremodel(p)
                     denoiserdealer(self)
                     self.lora_applied = True
-            print(p.prompts)
-            print(p.hr_prompts)
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, *args, **kwargs):
