@@ -347,6 +347,8 @@ class Script(modules.scripts.Script):
 
         self.__init__()
 
+        if type(p.prompt) == list:p.prompt = p.promot[0]
+
         self.active = True
         self.mode = tabs2mode(rp_selected_tab, mmode, xmode, pmode)
         self.calcmode = calcmode
