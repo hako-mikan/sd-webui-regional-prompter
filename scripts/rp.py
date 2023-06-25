@@ -454,6 +454,7 @@ class Script(modules.scripts.Script):
 
     def before_process_batch(self, p, *args, **kwargs):
         self.current_prompts = kwargs["prompts"].copy()
+        p.disable_extra_networks = False
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
@@ -477,8 +478,8 @@ class Script(modules.scripts.Script):
                     restoremodel(p)
                     denoiserdealer(self)
                     self.lora_applied = True
-            print(p.prompts)
-            print(p.hr_prompts)
+                #escape reload loras in hires-fix
+                p.disable_extra_networks = False
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, *args, **kwargs):
