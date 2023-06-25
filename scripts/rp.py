@@ -479,7 +479,7 @@ class Script(modules.scripts.Script):
                     denoiserdealer(self)
                     self.lora_applied = True
                 #escape reload loras in hires-fix
-                p.disable_extra_networks = False
+                p.disable_extra_networks = True
 
     # TODO: Should remove usebase, usecom, usencom - grabbed from self value.
     def postprocess_image(self, p, pp, *args, **kwargs):
