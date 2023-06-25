@@ -500,7 +500,7 @@ class Script(modules.scripts.Script):
         #         p.negative_prompt = self.orig_all_negative_prompts[0]
         #         p.all_negative_prompts[self.imgcount] = self.orig_all_negative_prompts[self.imgcount]
         # self.imgcount += 1
-        print("postprocess_image : ",self.imgcount,p.iteration,p.prompt,p.all_prompts)
+        #print("postprocess_image : ",self.imgcount,p.iteration,p.prompt,p.all_prompts)
         return p
 
     def postprocess(self, p, processed, *args):
