@@ -8,21 +8,24 @@ from modules import paths, scripts, shared, extra_networks
 from modules.processing import Processed
 from modules.script_callbacks import (on_ui_settings,
                                       CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
-import scripts.attention
-import scripts.latent
+import scripts.promptcessor
+reload(scripts.promptcessor) # update without restarting web-ui.bat
 import scripts.regions
-reload(scripts.regions) # update without restarting web-ui.bat
+reload(scripts.regions)
+import scripts.attention
 reload(scripts.attention)
+import scripts.latent
 reload(scripts.latent)
 import json  # Presets.
 from json.decoder import JSONDecodeError
-from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
+from scripts.attention import (hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer,
-                            restoremodel, setloradevice, setuploras, unloadlorafowards)
-from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT,
+                            restoremodel, setloradevice, setuploras, unloadloraforwards)
+from scripts.regions import (MAXCOLREG, IDIM,
                              create_canvas, draw_region, #detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask,
-                             floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
+                             floatdef, makeimgtmp, RegionMode)
+from scripts.promptcessor import KEYAND, KEYBRK, KEYPROMPT
 
 FLJSON = "regional_prompter_presets.json"
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
@@ -44,9 +47,6 @@ PTPRESETALT = os.path.join(paths.script_path, "scripts")
 #         return super().preprocess(x)
 
 # gr.Image = Image_Fix
-
-def lange(l):
-    return range(len(l))
 
 orig_batch_cond_uncond = shared.batch_cond_uncond
 
@@ -161,7 +161,7 @@ def compress_components(l):
     mode = tabs2mode(*l[:len(RPMODES) + 1])
     return [mode] + l[len(RPMODES) + 1:]
     
-class Script(modules.scripts.Script):
+class Script(modules.scripts.Script, RegionMode):
     def __init__(self):
         self.active = False
         self.mode = ""
@@ -170,6 +170,7 @@ class Script(modules.scripts.Script):
         self.h = 0
         self.debug = False
         self.usebase = False
+        self.usenbase = False
         self.usecom = False
         self.usencom = False
         self.batch_size = 0
@@ -193,13 +194,15 @@ class Script(modules.scripts.Script):
         self.anded = False
         self.lora_applied = False
         self.lactive = False
+        self.lateneg = False
         # for inpaintmask
         self.indmaskmode = False
         self.regmasks = None
         self.regbase = None
+        self.regcmb = None
         #for prompt region
         self.pe = []
-        self.modep =False
+        self.modep = False
         self.calced = False
         self.step = 0
         self.lpactive = False
@@ -232,6 +235,7 @@ class Script(modules.scripts.Script):
                 baseratios = gr.Textbox(label="Base Ratio", lines=1,value="0.2",interactive=True,  elem_id="RP_base_ratio", visible=True)
             with gr.Row():
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
+                usenbase = gr.Checkbox(value=False, label="Use base negative prompt",interactive=True, elem_id="RP_usenbase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
             
@@ -261,10 +265,11 @@ class Script(modules.scripts.Script):
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
             with gr.Row():
                 nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
-                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                # SBM Removed, now a setting.
+                # debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usenbase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -277,6 +282,7 @@ class Script(modules.scripts.Script):
                 (ratios, "RP Ratios"),
                 (baseratios, "RP Base Ratios"),
                 (usebase, "RP Use Base"),
+                (usenbase, "RP Use Nbase"),
                 (usecom, "RP Use Common"),
                 (usencom, "RP Use Ncommon"),
                 (nchangeand,"RP Change AND"),
@@ -314,13 +320,13 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
-        return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+        return [active, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
+                usebase, usenbase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
 
-    def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+    def process(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                usebase, usenbase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if not active:
-            unloader(self,p)
+            self.unloader(p)
             return p
 
         p.extra_generation_params.update({
@@ -334,6 +340,7 @@ class Script(modules.scripts.Script):
             "RP Ratios": aratios,
             "RP Base Ratios": bratios,
             "RP Use Base":usebase,
+            "RP Use Nbase":usenbase,
             "RP Use Common":usecom,
             "RP Use Ncommon": usencom,
             "RP Change AND" : nchangeand,
@@ -343,17 +350,19 @@ class Script(modules.scripts.Script):
         })
 
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
-                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
+                     usebase, usenbase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
 
         self.__init__()
 
-        if type(p.prompt) == list:p.prompt = p.promot[0]
+        if type(p.prompt) == list:
+            p.prompt = p.prompt[0]
 
         self.active = True
         self.mode = tabs2mode(rp_selected_tab, mmode, xmode, pmode)
         self.calcmode = calcmode
-        self.debug = debug
+        self.debug = fseti("debug") # From settings, not in main ui.
         self.usebase = usebase
+        self.usenbase = usenbase
         self.usecom = usecom
         self.usencom = usencom
         self.w = p.width
@@ -362,12 +371,11 @@ class Script(modules.scripts.Script):
         self.prompt = p.prompt
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
-
-        comprompt = comnegprompt = None
-
+        self.lateneg = fseti("lateneg")
+        
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
-
+        
         if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
             # Testing shows a round down occurs in model.
             print("Warning: Nonstandard height / width.")
@@ -384,35 +392,31 @@ class Script(modules.scripts.Script):
                 self.hr_h = self.hr_h - self.hr_h % ATTNSCALE
                 self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
 
-        self, p = flagfromkeys(self, p)
-
+        self.separate_externals(p)
+        self.change_key(p, KEYPROMPT, KEYBRK)
+        
         self.indmaskmode = (self.mode == "Mask")
 
-        if not nchangeand and "AND" in p.prompt.upper():
-            p.prompt = p.prompt.replace("AND",KEYBRK)
-            for i in lange(p.all_prompts):
-                p.all_prompts[i] = p.all_prompts[i].replace("AND",KEYBRK)
+        if not nchangeand:
+            self.change_key(p, KEYAND, KEYBRK)
             self.anded = True
-            
 
         if "Prompt" not in self.mode: # skip region assign in prompt mode
             self.cells = not "Mask" in self.mode
 
             #convert BREAK to ADDCOL/ADDROW
-            if KEYBRK in p.prompt and not "Mask" in self.mode:
-                p = keyconverter(aratios, self.mode, usecom, usebase, p)
 
             ##### region mode
 
             if self.indmaskmode:
-                self, p = inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt)
+                self.inpaintmaskdealer(p, bratios, self.usebase, self.usenbase, polymask)
 
             elif self.cells:
-                self, p = matrixdealer(self, p, aratios, bratios, self.mode, usebase, comprompt,comnegprompt)
+                self.matrixdealer(p, aratios, bratios, self.mode, self.usebase, self.usenbase)
     
             ##### calcmode 
 
-            if calcmode == "Attention":
+            if self.calcmode == "Attention":
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
                 shared.batch_cond_uncond = orig_batch_cond_uncond
                 seps = KEYBRK 
@@ -420,7 +424,7 @@ class Script(modules.scripts.Script):
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self,p)
                 if self.debug : print(p.prompt)
-                seps = "AND"
+                seps = KEYAND
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
                 self.lactive = True
@@ -428,9 +432,9 @@ class Script(modules.scripts.Script):
             # seps = KEYBRK # SBM No longer is keybrk applied first.
 
         elif "Prompt" in self.mode: #Prompt mode use both calcmode
-            if not (KEYBRK in p.prompt.upper() or "AND" in p.prompt.upper() or KEYPROMPT in p.prompt.upper()):
+            if not (KEYBRK in p.prompt.upper() or KEYAND in p.prompt.upper() or KEYPROMPT in p.prompt.upper()):
                 self.active = False
-                unloader(self,p)
+                self.unloader(p)
                 return
             self.ex = "Ex" in self.mode
             self.modep = True
@@ -438,28 +442,31 @@ class Script(modules.scripts.Script):
             self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
             denoiserdealer(self)
 
-            if calcmode == "Latent":
-                seps = "AND"
+            if self.calcmode == "Latent":
+                seps = KEYAND
                 self.lpactive = True
             else:
                 seps = KEYBRK
 
-        self, p = commondealer(self, p, self.usecom, self.usencom)   #add commom prompt to all region
-        self, p = anddealer(self, p , calcmode)                                 #replace BREAK to AND
-        self = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
+        self.apply_comms(p, seps)
+        self.tokenise(p, seps)
+        # self, p = commondealer(self, p, self.usecom, self.usencom)   #add commom prompt to all region
+        # self, p = anddealer(self, p , calcmode)                                 #replace BREAK to AND
+        # self = tokendealer(self, p, seps)                             #count tokens and calcrate target tokens
         self, p = thresholddealer(self, p, threshold)                          #set threshold
         self = bratioprompt(self, bratios)
+        self.merge_negs(p, seps)
         p = hrdealer(p)
 
         print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
-        if debug : debugall(self)
+        if self.debug : self.debugall()
 
     def before_process_batch(self, p, *args, **kwargs):
         self.current_prompts = kwargs["prompts"].copy()
         p.disable_extra_networks = False
 
-    def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+    def process_batch(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                      usebase, usenbase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         # print(kwargs["prompts"])
         if active:
             # SBM Before_process_batch was added in feb-mar, adding fallback.
@@ -470,7 +477,7 @@ class Script(modules.scripts.Script):
 
             if self.modep:
                 self = reset_pmasks(self)
-            if calcmode =="Latent":
+            if self.calcmode == "Latent":
                 setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
                 lora_namer(self, p, lnter, lnur)
 
@@ -512,31 +519,43 @@ class Script(modules.scripts.Script):
         if self.modep and not fseti("hidepmask"):
             savepmasks(self, processed)
 
-        if self.debug : debugall(self)
+        if self.debug : self.debugall()
 
-        unloader(self, p)
+        self.unloader(p)
 
     def denoiser_callback(self, params: CFGDenoiserParams):
         denoiser_callback_s(self, params)
 
     def denoised_callback(self, params: CFGDenoisedParams):
         denoised_callback_s(self, params)
-
-
-def unloader(self,p):
-    if hasattr(self,"handle"):
-        print("unloaded")
-        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
-        del self.handle
-
-    self.__init__()
+        
+    ############ Utility methods. ##############
+    def debugall(self):
+        print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}\nusenbase : {self.usenbase}")
+        print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
+        print(f"divide : {self.divide}\neq : {self.eq}\n")
+        print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}\n")
+        print(f"ratios : {self.aratios}\n")
+        print(f"prompt : {self.pe}\n")
     
-    shared.batch_cond_uncond = orig_batch_cond_uncond
-
-    unloadlorafowards(p)
-
+    def unloader(self,p):
+        # SBM Added scrub parameter to cleanup any leftover hooks forcibly.
+        if hasattr(self,"handle") or fseti("scrub"):
+            print("unloaded")
+            hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
+            try:
+                del self.handle
+            except AttributeError:
+                pass
+    
+        self.__init__()
+        
+        shared.batch_cond_uncond = orig_batch_cond_uncond
+        
+        unloadloraforwards(p)
+        
 def denoiserdealer(self):
-    if self.calcmode =="Latent": # prompt mode use only denoiser callbacks
+    if self.calcmode == "Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
         shared.batch_cond_uncond = False
@@ -547,100 +566,6 @@ def denoiserdealer(self):
 
 ############################################################
 ##### prompts, tokens
-def commondealer(self, p, usecom, usencom):
-    all_prompts = []
-    all_negative_prompts = []
-    def comadder(prompt):
-        ppl = prompt.split(KEYBRK)
-        for i in range(len(ppl)):
-            if i == 0:
-                continue
-            ppl[i] = ppl[0] + ", " + ppl[i]
-        ppl = ppl[1:]
-        prompt = f"{KEYBRK} ".join(ppl)
-        return prompt
-
-    if usecom:
-        self.prompt = p.prompt = comadder(p.prompt)
-        for pr in p.all_prompts:
-            all_prompts.append(comadder(pr))
-        p.all_prompts = all_prompts
-
-    if usencom:
-        self.negative_prompt = p.negative_prompt = comadder(p.negative_prompt)
-        for pr in p.all_negative_prompts:
-            all_negative_prompts.append(comadder(pr))
-        p.all_negative_prompts = all_negative_prompts
-        
-    return self, p
-
-def hrdealer(p):
-    p.hr_prompt = p.prompt
-    p.hr_negative_prompt = p.negative_prompt
-    p.all_hr_prompts = p.all_prompts
-    p.all_hr_negative_prompts = p.all_negative_prompts
-    return p
-
-def anddealer(self, p, calcmode):
-    self.divide = p.prompt.count(KEYBRK)
-    if calcmode != "Latent" : return self, p
-
-    p.prompt = p.prompt.replace(KEYBRK, "AND")
-    for i in lange(p.all_prompts):
-        p.all_prompts[i] = p.all_prompts[i].replace(KEYBRK, "AND")
-    p.negative_prompt = p.negative_prompt.replace(KEYBRK, "AND")
-    for i in lange(p.all_negative_prompts):
-        p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(KEYBRK, "AND")
-    self.divide = p.prompt.count("AND") + 1
-    return self, p
-
-
-def tokendealer(self, p, seps):
-    text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
-    ppl = text.split(seps)
-    npl = p.all_negative_prompts[0].split(seps)
-    targets =[p.split(",")[-1] for p in ppl[1:]]
-    pt, nt, ppt, pnt, tt = [], [], [], [], []
-
-    padd = 0
-    for pp in ppl:
-        tokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(pp)
-        pt.append([padd, tokensnum // TOKENS + 1 + padd])
-        ppt.append(tokensnum)
-        padd = tokensnum // TOKENS + 1 + padd
-
-    if self.modep:
-        for target in targets:
-            ptokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(ppl[0])
-            ttokens, _ = shared.sd_model.cond_stage_model.tokenize_line(target)
-
-            i = 1
-            tlist = []
-            while ttokens[0].tokens[i] != 49407:
-                for (j, maintok) in enumerate(ptokens): # SBM Long prompt.
-                    if ttokens[0].tokens[i] in maintok.tokens:
-                        tlist.append(maintok.tokens.index(ttokens[0].tokens[i]) + 75 * j)
-                i += 1
-            if tlist != [] : tt.append(tlist)
-
-    paddp = padd
-    padd = 0
-    for np in npl:
-        _, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(np)
-        nt.append([padd, tokensnum // TOKENS + 1 + padd])
-        pnt.append(tokensnum)
-        padd = tokensnum // TOKENS + 1 + padd
-
-    self.eq = paddp == padd
-
-    self.pt = pt
-    self.nt = nt
-    self.pe = tt
-    self.ppt = ppt
-    self.pnt = pnt
-
-    return self
-
 
 def thresholddealer(self, p ,threshold):
     if self.modep:
@@ -660,6 +585,14 @@ def bratioprompt(self, bratios):
         bratios.append(bratios[0])
     self.bratios = bratios
     return self
+
+def hrdealer(p):
+    p.hr_prompt = p.prompt
+    p.hr_negative_prompt = p.negative_prompt
+    p.all_hr_prompts = p.all_prompts
+    p.all_hr_negative_prompts = p.all_negative_prompts
+    return p
+
 #####################################################
 ##### Presets - Save  and Load Settings
 
@@ -724,9 +657,6 @@ class JsonMask():
 
 LPRESET = PresetList()
 
-fcountbrk = lambda x: x.count(KEYBRK)
-fint = lambda x: int(x)
-
 # Json formatters.
 fjstr = lambda x: x.strip()
 #fjbool = lambda x: (x.upper() == "TRUE" or x.upper() == "T")
@@ -741,6 +671,7 @@ PRESET_KEYS = [
 ("ratios", fjstr, None) ,
 ("baseratios", fjstr, None) ,
 ("usebase", fjbool, None) ,
+("usenbase", fjbool, None) ,
 ("usecom", fjbool, False) ,
 ("usencom", fjbool, False) ,
 ("calcmode", fjstr, "Attention") , # Generation mode.
@@ -878,15 +809,16 @@ def initpresets(filepath):
         return presetfallback()
 
 #####################################################
-##### Global settings
+##### Global extension settings
 
 EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
 EXTSETS = [
-("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
+("debug", "Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
-
+("scrub", "Remove extension hooks forcibly", "check", dict()),
+("lateneg", "EXPERIMENTAL: Workaround for negative regions in latent mode", "check", dict()),
 ]
 # Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
 # (id: def)
@@ -946,45 +878,5 @@ def ext_on_ui_settings():
         opt = comp.get()
         shared.opts.add_option(*opt)
         DEXTSETV[cid] = comp.vdef
-
-def debugall(self):
-    print(f"mode : {self.calcmode}\ndivide : {self.mode}\nusebase : {self.usebase}")
-    print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}\nuse 2D : {self.cells}")
-    print(f"divide : {self.divide}\neq : {self.eq}\n")
-    print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}\n")
-    print(f"ratios : {self.aratios}\n")
-    print(f"prompt : {self.pe}\n")
-
-def flagfromkeys(self, p):
-    '''
-    detect COMM/BASE keys and set flags
-    '''
-    if KEYCOMM in p.prompt:
-        self.usecom = True
-    
-    if KEYCOMM in p.negative_prompt:
-        self.usencom = True
-    
-    if KEYBASE in p.prompt:
-        self.usebase = True
-
-        
-    if KEYPROMPT in p.prompt.upper():
-        self.mode = "Prompt"
-        p.replace(KEYPROMPT,KEYBRK)
-
-    return self, p
-
-def keyconverter(aratios,mode,usecom,usebase,p):
-    '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
-    keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
-    keychanger = keychanger[:-1]
-    #print(keychanger,p.prompt)
-    for change in keychanger:
-        if change == KEYCOMM and KEYCOMM in p.prompt: continue
-        if change == KEYBASE and KEYBASE in p.prompt: continue
-        p.prompt= p.prompt.replace(KEYBRK,change,1)
-
-    return p
 
 on_ui_settings(ext_on_ui_settings)

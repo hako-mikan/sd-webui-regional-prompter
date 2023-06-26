@@ -6,25 +6,18 @@ import numpy as np
 import PIL
 import torch
 from modules import devices
+import scripts.promptcessor
+from scripts.promptcessor import RegionPrompt, KEYROW, KEYCOL, KEYBRK, fspace, split_l2, extend_clauses 
 
+"""
+This module handles per mode structure creation (mostly mask mode's), and some basic ui backend.
+Applies promptcessor's text editing.
+"""
 
-def lange(l):
-    return range(len(l))
-
-# SBM Keywords and delimiters for region breaks, following matlab rules.
-# BREAK keyword is now passed through,  
-KEYROW = "ADDROW"
-KEYCOL = "ADDCOL"
-KEYBASE = "ADDBASE"
-KEYCOMM = "ADDCOMM"
-KEYBRK = "BREAK"
-KEYPROMPT = "ADDP"
 DELIMROW = ";"
 DELIMCOL = ","
-DELIMROW = ";"
-DELIMCOL = ","
-MCOLOUR = 256
 NLN = "\n"
+MCOLOUR = 256
 DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
 ("out",False): KEYROW,
 ("in",False): KEYCOL,
@@ -32,29 +25,8 @@ DKEYINOUT = { # Out/in, horizontal/vertical or row/col first.
 ("in",True): KEYROW,
 }
 
-ALLKEYS = [KEYCOMM,KEYROW, KEYCOL, KEYBASE, KEYPROMPT]
-
-fidentity = lambda x: x
 ffloatd = lambda c: (lambda x: floatdef(x,c))
 fcolourise = lambda: np.random.randint(0,MCOLOUR,size = 3)
-fspace = lambda x: " {} ".format(x)
-
-"""
-SBM mod: Two dimensional regions (of variable size, NOT a matrix).
-- Adds keywords ADDROW, ADDCOL and respective delimiters for aratios.
-- A/bratios become list dicts: Inner dict of cols (varying length list) + start/end + number of breaks,
-  outer layer is rows list.
-  First value in each row is the row's ratio, the rest are col ratios.
-  This fits prompts going left -> right, top -> down. 
-- Unrelated BREAKS are counted per cell, and later extracted as multiple context indices.
-- Each layer is cut up by both row + col ratios.
-- Style improvements: Created classes for rows + cells and functions for some of the splitting.
-- Base prompt overhaul: Added keyword ADDBASE, when present will trigger "use_base" automatically;
-  base is excluded from the main prompt for dim calcs; returned to start before hook (+ base break count);
-  during hook, context index skips base break count + 1. Rest is applied normally.
-- To specify cols first, use "vertical" mode. eg 1st col:2 rows, 2nd col:1 row.
-  In effect, this merely reverses the order of iteration for every row/col loop and whatnot.
-"""
 
 class RegionCell():
     """Cell used to split a layer to single prompts."""
@@ -91,87 +63,6 @@ def floatdef(x, vdef):
     except ValueError:
         print("'{}' is not a number, converted to {}".format(x,vdef))
         return vdef
-
-def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None, indflip = False):
-    """Split string to 2d list (ie L2) per row and col keys.
-    
-    The output is a list of lists, each of varying length.
-    If a L2 basestruct is provided,
-    will adhere to its structure using the following broadcast rules:
-    - Basically matches row by row of base and new.
-    - If a new row is shorter than base, the last value is repeated to fill the row.
-    - If both are the same length, copied as is.
-    - If new row is longer, then additional values will overflow to the next row.
-      This might be unintended sometimes, but allows making all items col separated,
-      then the new structure is simply adapted to the base structure.
-    - If there are too many values in new, they will be ignored.
-    - If there are too few values in new, the last one is repeated to fill base. 
-    For mixed row + col ratios, singles flag is provided -
-    will extract the first value of each row to a separate list,
-    and output structure is (row L1,cell L2).
-    There MUST be at least one value for row, one value for col when singles is on;
-    to prevent errors, the row value is copied to col if it's alone (shouldn't affect results).
-    Singles still respects base broadcast rules, and repeats its own last value.
-    The fmap function is applied to each cell before insertion to L2;
-    if it fails, a default value is used.
-    If flipped, the keyword for columns is applied before rows.
-    TODO: Needs to be a case insensitive split. Use re.split.
-    """
-    if indflip:
-        tmp = kr
-        kr = kc
-        kc = tmp
-    lret = []
-    if basestruct is None:
-        lrows = s.split(kr)
-        lrows = [row.split(kc) for row in lrows]
-        for r in lrows:
-            cell = [fmap(x) for x in r]
-            lret.append(cell)
-        if indsingles:
-            lsingles = [row[0] for row in lret]
-            lcells = [row[1:] if len(row) > 1 else row for row in lret]
-            lret = (lsingles,lcells)
-    else:
-        lrows = s.split(kr)
-        r = 0
-        lcells = []
-        lsingles = []
-        vlast = 1
-        for row in lrows:
-            row2 = row.split(kc)
-            row2 = [fmap(x) for x in row2]
-            vlast = row2[-1]
-            indstop = False
-            while not indstop:
-                if (r >= len(basestruct) # Too many cell values, ignore.
-                or (len(row2) == 0 and len(basestruct) > 0)): # Cell exhausted.
-                    indstop = True
-                if not indstop:
-                    if indsingles: # Singles split.
-                        lsingles.append(row2[0]) # Row ratio.
-                        if len(row2) > 1:
-                            row2 = row2[1:]
-                    if len(basestruct[r]) >= len(row2): # Repeat last value.
-                        indstop = True
-                        broadrow = row2 + [row2[-1]] * (len(basestruct[r]) - len(row2))
-                        r = r + 1
-                        lcells.append(broadrow)
-                    else: # Overfilled this row, cut and move to next.
-                        broadrow = row2[:len(basestruct[r])]
-                        row2 = row2[len(basestruct[r]):]
-                        r = r + 1
-                        lcells.append(broadrow)
-        # If not enough new rows, repeat the last one for entire base, preserving structure.
-        cur = len(lcells)
-        while cur < len(basestruct):
-            lcells.append([vlast] * len(basestruct[cur]))
-            cur = cur + 1
-        lret = lcells
-        if indsingles:
-            lsingles = lsingles + [lsingles[-1]] * (len(basestruct) - len(lsingles))
-            lret = (lsingles,lcells)
-    return lret
 
 def is_l2(l):
     return isinstance(l[0],list) 
@@ -241,16 +132,6 @@ def list_rangify(l):
         lret = row3
     return lret
 
-def round_dim(x,y):
-    """Return division of two numbers, rounding 0.5 up.
-    
-    Seems that dimensions which are exactly 0.5 are rounded up - see 680x488, second iter.
-    A simple mod check should get the job done.
-    If not, can always brute force the divisor with +-1 on each of h/w.
-    """
-    return x // y + (x % y >= y // 2)
-
-
 def isfloat(t):
     try:
         float(t)
@@ -319,138 +200,15 @@ def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
         changer = [l.strip() for l in changer]
         return changer
     
-    return img,gr.update(value = template)
+    return img, gr.update(value = template)
 
 ################################################################
 ##### matrix
 fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 
-def matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegprompt):
-    if self.usecom and KEYCOMM in p.prompt:
-        comprompt = p.prompt.split(KEYCOMM,1)[0]
-        p.prompt = p.prompt.split(KEYCOMM,1)[1]
-    elif self.usecom and KEYBRK in p.prompt:
-        comprompt = p.prompt.split(KEYBRK,1)[0]
-        p.prompt = p.prompt.split(KEYBRK,1)[1]
-    if self.usencom and KEYCOMM in p.negative_prompt:
-        comnegprompt = p.negative_prompt.split(KEYCOMM,1)[0]
-        p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
-    elif self.usencom and KEYBRK in p.negative_prompt:
-        comnegprompt = p.negative_prompt.split(KEYBRK,1)[0]
-        p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
-    # The addrow/addcol syntax is better, cannot detect regular breaks without it.
-    # In any case, the preferred method will anchor the L2 structure. 
-    if (KEYBASE in p.prompt.upper()): # Designated base.
-        self.usebase = True
-        baseprompt = p.prompt.split(KEYBASE,1)[0]
-        mainprompt = p.prompt.split(KEYBASE,1)[1] 
-        self.basebreak = fcountbrk(baseprompt)
-    elif usebase: # Get base by first break as usual.
-        baseprompt = p.prompt.split(KEYBRK,1)[0]
-        mainprompt = p.prompt.split(KEYBRK,1)[1]
-    else:
-        baseprompt = ""
-        mainprompt = p.prompt
-    indflip = (mode == "Vertical")
-    if (KEYCOL in mainprompt.upper() or KEYROW in mainprompt.upper()):
-        breaks = mainprompt.count(KEYROW) + mainprompt.count(KEYCOL) + int(self.usebase)
-        # Prompt anchors, count breaks between special keywords.
-        lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
-        if (DELIMROW not in aratios
-        and (KEYROW in mainprompt.upper()) != (KEYCOL in mainprompt.upper())):
-            # By popular demand, 1d integrated into 2d.
-            # This works by either adding a single row value (inner),
-            # or setting flip to the reverse (outer).
-            # Only applies when using just ADDROW / ADDCOL keys, and commas in ratio.
-            indflip2 = False
-            if (KEYROW in mainprompt.upper()) == indflip:
-                aratios = "1" + DELIMCOL + aratios
-            else:
-                indflip2 = True
-            (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
-                                fmap = ffloatd(1), basestruct = lbreaks,
-                                indflip = indflip2)
-        else: # Standard ratios, split to rows and cols.
-            (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
-                                            fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
-        # More like "bweights", applied per cell only.
-        bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
-    else:
-        breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-        (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloatd(1), indflip = indflip)
-        # Cannot determine which breaks matter.
-        lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
-        bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
-        # If insufficient breaks, try to broadcast prompt - a bit dumb.
-        breaks = fcountbrk(mainprompt)
-        lastprompt = mainprompt.rsplit(KEYBRK)[-1]
-        if l2_count(aratios2) > breaks: 
-            mainprompt = mainprompt + (fspace(KEYBRK) + lastprompt) * (l2_count(aratios2) - breaks) 
-    
-    # Change all splitters to breaks.
-    (aratios,aratiosr) = ratiosdealer(aratios2,aratios2r)
-    bratios = bratios2 
-    
-    # Merge various L2s to cells and rows.
-    drows = []
-    for r,_ in enumerate(lbreaks):
-        dcells = []
-        for c,_ in enumerate(lbreaks[r]):
-            d = RegionCell(aratios[r][c][0], aratios[r][c][1], bratios[r][c], lbreaks[r][c])
-            dcells.append(d)
-        drow = RegionRow(aratiosr[r][0], aratiosr[r][1], dcells)
-        drows.append(drow)
-    self.aratios = drows
-    # Convert all keys to breaks, and expand neg to fit.
-    mainprompt = mainprompt.replace(KEYROW,KEYBRK) # Cont: Should be case insensitive.
-    mainprompt = mainprompt.replace(KEYCOL,KEYBRK)
-    p.prompt = mainprompt
-    if self.usebase:
-        p.prompt = baseprompt + fspace(KEYBRK) + p.prompt 
-    #p.all_prompts = [p.prompt] * len(p.all_prompts)
-
-    npr = p.negative_prompt
-    npr.replace(KEYROW,KEYBRK)
-    npr.replace(KEYCOL,KEYBRK)
-    npr = npr.split(KEYBRK)
-    nbreaks = len(npr) - 1
-    if breaks >= nbreaks: # Repeating the first neg as in orig code.
-        npr.extend([npr[0]] * (breaks - nbreaks))
-    else: # Cut off the excess negs.
-        npr = npr[0:breaks + 1]
-    for i ,n in enumerate(npr):
-        if n.isspace() or n =="":
-            npr[i] = ","
-    # p.negative_prompt = fspace(KEYBRK).join(npr)
-    # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-    # if comprompt is not None : 
-    #     p.prompt = comprompt + fspace(KEYBRK) + p.prompt
-    #     for i in lange(p.all_prompts):
-    #         p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
-    # if comnegprompt is not None :
-    #     p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
-    #     for i in lange(p.all_negative_prompts):
-    #         p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
-    p = keyreplacer(p)
-    return self, p
-
 ################################################################
 ##### inpaint
-
-"""
-SBM mod: Mask polygon region.
-- Basically a version of inpainting, where polygon outlines are drawn and added to a coloured image.
-- Colours from the image are picked apart for masks corresponding to regions.
-- In new mask mode, masks are stored instead of aratios, and applied to each region forward.
-- Mask can be uploaded (alpha, no save), and standard colours are detected from it.
-- Uncoloured regions default to the first colour detected;
-  however, if base mode is used, instead base will be applied to the remainder at 100% strength.
-  I think this makes it far more useful. At 0 strength, it will apply ONLY to said regions.
-- V2: Corrects and detects colours from upload.
-- Mask mode presets save mask to a file, which is loaded with the preset.
-- Added -1 colour to clear sections, an eraser.
-"""
 
 POLYFACTOR = 1.5 # Small lines are detected as shapes.
 COLREG = None # Computed colour regions cache. Array. Extended whenever a new colour is requested.
@@ -774,114 +532,150 @@ def create_canvas(h, w, indwipe = True):
     vret =  np.zeros(shape = (h + VARIANT, w + VARIANT, CCHANNELS), dtype = np.uint8) + CBLACK
     return vret
 
-# SBM In mask mode, grabs each mask from coloured mask image.
-# If there's no base, remainder goes to first mask.
-# If there's a base, it will receive its own remainder mask, applied at 100%.
-def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt):
-    if self.usecom and KEYCOMM in p.prompt:
-        p.prompt = p.prompt.split(KEYCOMM,1)[1]
-    elif self.usecom and KEYBRK in p.prompt:
-        p.prompt = p.prompt.split(KEYBRK,1)[1]
+class RegionMode(RegionPrompt):
+    """Builds region objects for later region application.
+    
+    Abstract class for script.
+    """
+    # def matrixdealer(self, p, aratios, bratios, mode, usebase, comprompt,comnegprompt):
+    def matrixdealer(self, p, aratios, bratios, mode, usebase, usenbase):
+        """
+        SBM mod: Two dimensional regions (of variable size, NOT a matrix).
+        - Adds keywords ADDROW, ADDCOL and respective delimiters for aratios.
+        - A/bratios become list dicts: Inner dict of cols (varying length list) + start/end + number of breaks,
+          outer layer is rows list.
+          First value in each row is the row's ratio, the rest are col ratios.
+          This fits prompts going left -> right, top -> down. 
+        - Unrelated BREAKS are counted per cell, and later extracted as multiple context indices.
+        - Each layer is cut up by both row + col ratios.
+        - Style improvements: Created classes for rows + cells and functions for some of the splitting.
+        - Base prompt overhaul: Added keyword ADDBASE, when present will trigger "use_base" automatically;
+          base is excluded from the main prompt for dim calcs; returned to start before hook (+ base break count);
+          during hook, context index skips base break count + 1. Rest is applied normally.
+        - To specify cols first, use "vertical" mode. eg 1st col:2 rows, 2nd col:1 row.
+          In effect, this merely reverses the order of iteration for every row/col loop and whatnot.
+        """
+        mainprompt = p.prompt
+            
+        indflip = (mode == "Vertical")
+        if (KEYCOL in mainprompt.upper() or KEYROW in mainprompt.upper()):
+            breaks = mainprompt.count(KEYROW) + mainprompt.count(KEYCOL) + 1
+            # Prompt anchors, count breaks between special keywords.
+            lbreaks = split_l2(mainprompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
+            if (DELIMROW not in aratios
+            and (KEYROW in mainprompt.upper()) != (KEYCOL in mainprompt.upper())):
+                # By popular demand, 1d integrated into 2d.
+                # This works by either adding a single row value (inner),
+                # or setting flip to the reverse (outer).
+                # Only applies when using just ADDROW / ADDCOL keys, and commas in ratio.
+                indflip2 = False
+                if (KEYROW in mainprompt.upper()) == indflip:
+                    aratios = "1" + DELIMCOL + aratios
+                else:
+                    indflip2 = True
+                (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
+                                    fmap = ffloatd(1), basestruct = lbreaks,
+                                    indflip = indflip2)
+            else: # Standard ratios, split to rows and cols.
+                (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True,
+                                                fmap = ffloatd(1), basestruct = lbreaks, indflip = indflip)
+            # More like "bweights", applied per cell only.
+            bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
+        else:
+            breaks = fcountbrk(mainprompt) + 1
+            (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloatd(1), indflip = indflip)
+            # Cannot determine which breaks matter.
+            lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
+            bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
+            mainprompt = extend_clauses(mainprompt, l2_count(aratios2) - breaks)
+            p.prompt = mainprompt
         
-    if self.usencom and KEYCOMM in p.negative_prompt:
-        p.negative_prompt = p.negative_prompt.split(KEYCOMM,1)[1]
-    elif self.usencom and KEYBRK in p.negative_prompt:
-        p.negative_prompt = p.negative_prompt.split(KEYBRK,1)[1]
+        # Change all splitters to breaks.
+        (aratios,aratiosr) = ratiosdealer(aratios2,aratios2r)
+        bratios = bratios2 
         
-    if (KEYBASE in p.prompt.upper()): # Designated base.
-        baseprompt = p.prompt.split(KEYBASE,1)[0]
-        mainprompt = p.prompt.split(KEYBASE,1)[1] 
-        #self.basebreak = fcountbrk(baseprompt) # No support for inner breaks currently.
-    elif usebase: # Get base by first break as usual.
-        baseprompt = p.prompt.split(KEYBRK,1)[0]
-        mainprompt = p.prompt.split(KEYBRK,1)[1]
-    else:
-        baseprompt = ""
+        # Merge various L2s to cells and rows.
+        drows = []
+        for r,_ in enumerate(lbreaks):
+            dcells = []
+            for c,_ in enumerate(lbreaks[r]):
+                d = RegionCell(aratios[r][c][0], aratios[r][c][1], bratios[r][c], lbreaks[r][c])
+                dcells.append(d)
+            drow = RegionRow(aratiosr[r][0], aratiosr[r][1], dcells)
+            drows.append(drow)
+        self.aratios = drows
+        self.rejoin_bases(p)
+        self.replace_allp_keys(p)
+        nbreaks = fcountbrk(p.negative_prompt) - int(self.usenbase) + 1
+        p.negative_prompt = extend_clauses(p.negative_prompt, breaks - nbreaks)
+        
+        # return self, p
+    
+    # SBM In mask mode, grabs each mask from coloured mask image.
+    # If there's no base, remainder goes to first mask.
+    # If there's a base, it will receive its own remainder mask, applied at 100%.
+    # def inpaintmaskdealer(self, p, bratios, usebase, polymask, comprompt, comnegprompt):
+    def inpaintmaskdealer(self, p, bratios, usebase, usenbase, polymask):
+        """
+        SBM mod: Mask polygon region.
+        - Basically a version of inpainting, where polygon outlines are drawn and added to a coloured image.
+        - Colours from the image are picked apart for masks corresponding to regions.
+        - In new mask mode, masks are stored instead of aratios, and applied to each region forward.
+        - Mask can be uploaded (alpha, no save), and standard colours are detected from it.
+        - Uncoloured regions default to the first colour detected;
+          however, if base mode is used, instead base will be applied to the remainder at 100% strength.
+          I think this makes it far more useful. At 0 strength, it will apply ONLY to said regions.
+        - V2: Corrects and detects colours from upload.
+        - Mask mode presets save mask to a file, which is loaded with the preset.
+        - Added -1 colour to clear sections, an eraser.
+        """
         mainprompt = p.prompt
         
-    # Prep masks.
-    self.regmasks = []
-    tm = None
-    # Sort colour dict by key, return value for masking.
-    #for _,c in sorted(REGUSE.items(), key = lambda x: x[0]):
-    for c in sorted(REGUSE.keys()):
-        m = detect_mask(polymask, c, 1)
-        if VARIANT != 0:
-            m = m[:-VARIANT,:-VARIANT]
-        if m.any():
-            if tm is None:
-                tm = np.zeros_like(m) # First mask is ignored deliberately.
-                if self.usebase: # In base mode, base gets the outer regions.
+        # Prep masks.
+        self.regmasks = []
+        tm = None
+        # Sort colour dict by key, return value for masking.
+        #for _,c in sorted(REGUSE.items(), key = lambda x: x[0]):
+        for c in sorted(REGUSE.keys()):
+            m = detect_mask(polymask, c, 1)
+            if VARIANT != 0:
+                m = m[:-VARIANT,:-VARIANT]
+            if m.any():
+                if tm is None:
+                    tm = np.zeros_like(m) # First mask is ignored deliberately.
+                    if self.usebase or self.usenbase: # In base mode, base gets the outer regions.
+                        tm = tm + m
+                else:
                     tm = tm + m
-            else:
-                tm = tm + m
-            m = m.reshape([1, *m.shape]).astype(np.float16)
-            t = torch.from_numpy(m).to(devices.device) 
-            self.regmasks.append(t)
-    # First mask applies to all unmasked regions.
-    m = 1 - tm
-    m = m.reshape([1, *m.shape]).astype(np.float16)
-    t = torch.from_numpy(m).to(devices.device)
-    if self.usebase:
-        self.regbase = t
-    else:
-        self.regbase = None
-        self.regmasks[0] = t
-    # t = torch.from_numpy(np.zeros([1,512,512], dtype = np.float16)).to(devices.device)
-    # self.regmasks.append(t)
-    # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
-    # self.regmasks.append(t)
-    
-    # Convert all keys to breaks, and expand neg to fit.
-    mainprompt = mainprompt.replace(KEYROW,KEYBRK) # Cont: Should be case insensitive.
-    mainprompt = mainprompt.replace(KEYCOL,KEYBRK)
-    
-    # Simulated region anchroing for base weights.
-    breaks = mainprompt.count(KEYBRK) + int(self.usebase)
-    self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
-                            basestruct = [[0] * (breaks + 1)], indflip = False)
-    
-    p.prompt = mainprompt
-    if self.usebase:
-        p.prompt = baseprompt + fspace(KEYBRK) + p.prompt
-    npr = p.negative_prompt
-    npr.replace(KEYROW,KEYBRK)
-    npr.replace(KEYCOL,KEYBRK)
-    npr = npr.split(KEYBRK)
-    nbreaks = len(npr) - 1
-    if breaks >= nbreaks: # Repeating the first neg as in orig code.
-        npr.extend([npr[0]] * (breaks - nbreaks))
-    else: # Cut off the excess negs.
-        npr = npr[0:breaks + 1]
-    for i ,n in enumerate(npr):
-        if n.isspace() or n =="":
-            npr[i] = ","
-    # p.negative_prompt = fspace(KEYBRK).join(npr)
-    # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-    # p.negative_prompt = fspace(KEYBRK).join(npr)
-    # p.all_negative_prompts = [p.negative_prompt] * len(p.all_negative_prompts)
-    # if comprompt is not None : 
-    #     p.prompt = comprompt + fspace(KEYBRK) + p.prompt
-    #     for i in lange(p.all_prompts):
-    #         p.all_prompts[i] = comprompt + fspace(KEYBRK) + p.all_prompts[i]
-    # if comnegprompt is not None :
-    #     p.negative_prompt = comnegprompt + fspace(KEYBRK) + p.negative_prompt
-    #     for i in lange(p.all_negative_prompts):
-    #         p.all_negative_prompts[i] = comnegprompt + fspace(KEYBRK) + p.all_negative_prompts[i]
-    p = keyreplacer(p)
-    return self, p
-
-
-def keyreplacer(p):
-    '''
-    replace all separators to BREAK
-    p.all_prompt and p.all_negative_prompt
-    '''
-    for key in ALLKEYS:
-        for i in lange(p.all_prompts):
-            p.all_prompts[i]= p.all_prompts[i].replace(key,KEYBRK)
+                m = m.reshape([1, *m.shape]).astype(np.float16)
+                t = torch.from_numpy(m).to(devices.device) 
+                self.regmasks.append(t)
+        # First mask applies to all unmasked regions.
+        m = 1 - tm
+        m = m.reshape([1, *m.shape]).astype(np.float16)
+        t = torch.from_numpy(m).to(devices.device)
+        if self.usebase or self.usenbase:
+            self.regbase = t
+            self.regcmb = self.regmasks[0] + t # Base / nbase operate individually.
+        else:
+            self.regbase = None
+            # self.regmasks[0] = t
+            self.regcmb = t
+            
+        # t = torch.from_numpy(np.zeros([1,512,512], dtype = np.float16)).to(devices.device)
+        # self.regmasks.append(t)
+        # t = torch.from_numpy(np.ones([1,512,512], dtype = np.float16)).to(devices.device)
+        # self.regmasks.append(t)
         
-        for i in lange(p.all_negative_prompts):
-            p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(key,KEYBRK)
-
-    return p
+        # Convert all keys to breaks, and expand neg to fit.
+        self.rejoin_bases(p)
+        self.replace_allp_keys(p)
+        breaks = fcountbrk(p.prompt) - int(self.usebase) + 1
+        nbreaks = fcountbrk(p.negative_prompt) - int(self.usenbase) + 1
+        p.prompt = extend_clauses(p.prompt, len(self.regmasks) - breaks)
+        p.negative_prompt = extend_clauses(p.negative_prompt, breaks - nbreaks)
+        # Simulated region anchoring for base weights.
+        self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
+                                basestruct = [[0] * (max(breaks, nbreaks))], indflip = False)
+        # return self, p
+    

@@ -142,12 +142,16 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                     params.text_cond[b+a*self.batch_size] = ct[a + b * areas]
 
 def denoised_callback_s(self, params: CFGDenoisedParams):
+    # SBM Added all negs as pos (setting), and read them out here, applied to xs.
+    # CONT: Need to improve speed by permaturely multiplying all filter * filterneg,
+    #  to see which ones are all zeroes, and thus can be skipped.
+    #  This will bring us back down an O(n) factor where there's a full set of negs.
+    #  The main concern is uneven usage of DUPE keys creating asymmetrical filters.
     if self.lactive or self.lpactive:
         x = params.x
         xt = params.x.clone()
         batch = self.batch_size
-        areas = xt.shape[0] // batch -1
-
+        areas = xt.shape[0] // batch - 1
         # x.shape = [batch_size, C, H // 8, W // 8]
 
         indrebuild = False
@@ -155,21 +159,22 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
             indrebuild = True
         elif self.filters[0].size() != x[0].size():
             indrebuild = True
-        if indrebuild:
-            if self.indmaskmode:
-                masks = (self.regmasks,self.regbase)
-            else:
-                masks = self.aratios
 
         if not self.lpactive:
             if indrebuild:
                 if self.indmaskmode:
-                    masks = (self.regmasks,self.regbase)
+                    masks = (self.regmasks, self.regbase, self.regcmb)
                 else:
-                    masks = self.aratios  #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, self.indmaskmode)
+                    masks = self.aratios
+                #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
+                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],
+                                           masks, self.mode, self.usebase, self.bratios, self.indmaskmode, self.pdp)
                 self.filters = [f for f in self.filters]*batch
-                self.neg_filters = [1- f for f in self.filters]
+                self.neg_filters = [1 - f for f in self.filters]
+                if self.lateneg: # Neg region filters.
+                    self.filtersn = makefilters(x.shape[1], x.shape[2], x.shape[3],
+                                                masks, self.mode, self.usenbase, self.bratios, self.indmaskmode, self.pdn)
+                    self.filtersn = [f for f in self.filtersn] * batch # SBM This seems redundant, could loop the same items.
         else:
             if not att.maskready:
                 self.filters = [1,*[0 for a in range(areas - 1)]] * batch
@@ -184,11 +189,35 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
         for b in range(batch):
             for a in range(areas):
                 x[a + b * areas] = xt[b+a*batch]
-
-        for b in range(batch):
-            for a in range(areas) :
-                if self.debug : print(f"x = {x.size()}i = {a + b*areas}, cond = {a + b*areas}, uncon = {x.size()[0]+(b-batch)}")
-                x[a + b*areas, :, :, :] =  x[a + b*areas, :, :, :] * self.filters[a + b*areas] + x[x.size()[0]+(b-batch), :, :, :] * self.neg_filters[a + b*areas]
+        
+        if not self.lateneg:
+            for b in range(batch):
+                for a in range(areas):
+                    if self.debug : print(f"x = {x.size()}i = {a + b*areas},",
+                                          f"cond = {a + b*areas},",
+                                          f"uncon = {x.size()[0]+(b-batch)}")
+                    x[a + b * areas, :, :, :] = (x[a + b * areas, :, :, :] * self.filters[a + b * areas]
+                                                 + x[x.size()[0]+(b-batch), :, :, :] * self.neg_filters[a + b*areas])
+        else:
+            areasn = len(self.filtersn)
+            # In latent neg mode, we nullify the effect of the total neg everywhere,
+            # and instead the neg is applied from every clause's filter.
+            for b in range(batch):
+                for a in range(areas - areasn):
+                    # Nullification and regioning.
+                    x[a + b * areas, :, :, :] = (x[a + b * areas, :, :, :] * self.filters[a + b * areas]
+                                                 + x[x.size()[0]+(b-batch), :, :, :])
+                    # Regional negation.
+                    for na in range(areasn):
+                        x[a + b * areas, :, :, :] -= (x[areas - areasn + na + b * areas, :, :, :]
+                                                      * self.filters[a + b * areas]
+                                                      * self.filtersn[na + b*areas])
+            
+            # I believe the neg zones must be nullified completely since they're ANDed.
+            # Which means setting to the global neg.
+            for b in range(batch):
+                for na in range(areasn):
+                    x[areas - areasn + na + b * areas, :, :, :] = x[x.size()[0]+(b-batch), :, :, :]
 
 ######################################################
 ##### Latent Method
@@ -238,29 +267,61 @@ def lora_namer(self, p, lnter, lnur):
         print("LoRA regioner : TE list",regioner.te_llist)
         print("LoRA regioner : U list",regioner.u_llist)
 
-def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
+def dupe_index(idx, ddupe):
+    """Recursively finds original index of a duped region.
+    
+    If region is not a dupe, returns -1.
+    Dupes may reference once another (assumes no loops),
+    in which case we repeat the search until finding original
+    Idx is 0 based.
+    Currently, only supports left to right interpretation.
+    """
+    didx = idx + 1
+    while didx in ddupe:
+        didx = ddupe[didx]
+    if didx == idx + 1:
+        didx = -1
+    return didx
+
+def makefilters(c,h,w,masks,mode,usebase,bratios,indmask,ddupe = dict()):
     if indmask:
-        (regmasks, regbase) = masks
+        (regmasks, regbase, regcmb) = masks
         
     filters = []
     x =  torch.zeros(c, h, w).to(devices.device)
+    x0 = None
     if usebase:
         x0 = torch.zeros(c, h, w).to(devices.device)
-    i=0
+    i = 0
     if indmask:
         ftrans = Resize((h, w), interpolation = InterpolationMode("nearest"))
         for rmask, bratio in zip(regmasks,bratios[0]):
+            if not usebase and i == 0: # In nonbase, apply combined base + first mask. 
+                rmask = regcmb
             # Resize mask to current dims.
             # Since it's a mask, we prefer a binary value, nearest is the only option.
             rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
             rmask2 = rmask2.reshape([1, h, w])
-            fx = x.clone()
+            
+            didx = dupe_index(i, ddupe)
+            if didx == 0: # Base cloning assigns base at 100%. Which means updating x0.
+                bratio = 1
+                fx = x0
+                indnew = False
+            elif didx > 0: # Duped regions are applied to existing mask.
+                fx = filters[didx - 1]
+                indnew = False
+            else:
+                fx = x.clone()
+                indnew = True
             if usebase:
                 fx[:,:,:] = fx + rmask2 * (1 - bratio)
                 x0[:,:,:] = x0 + rmask2 * bratio
-            else:
+            elif fx is not x0:
                 fx[:,:,:] = fx + rmask2 * 1
-            filters.append(fx)
+            if indnew:
+                filters.append(fx)
+            i = i + 1
             
         if usebase: # Add base to x0.
             rmask = regbase
@@ -270,21 +331,32 @@ def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
     else:
         for drow in masks:
             for dcell in drow.cols:
-                fx = x.clone()
+                didx = dupe_index(i, ddupe)
+                if didx == 0: # Base cloning assigns base at 100%. Which means updating x0.
+                    dcell.base = 1
+                    fx = x0
+                    indnew = False
+                elif didx > 0: # Duped regions are applied to existing mask.
+                    fx = filters[didx - 1]
+                    indnew = False
+                else:
+                    fx = x.clone()
+                    indnew = True
                 if "Horizontal" in mode:
                     if usebase:
                         fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1 - dcell.base
                         x0[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = dcell.base
-                    else:
-                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1    
+                    elif fx is not x0:
+                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1
                 elif "Vertical" in mode: 
                     if usebase:
                         fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1 - dcell.base
                         x0[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = dcell.base
-                    else:
-                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1  
-                filters.append(fx)
-                i +=1
+                    elif fx is not x0:
+                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1
+                if indnew:  
+                    filters.append(fx)
+                i += 1
     if usebase : filters.insert(0,x0)
     if labug : print(i,len(filters))
 
@@ -527,7 +599,7 @@ def restoremodel(p):
                 module.lora_current_names = None
 
 
-def unloadlorafowards(p):
+def unloadloraforwards(p):
     global orig_lora_Linear_forward, orig_lora_Conv2d_forward, orig_lora_apply_weights, orig_lora_forward, lactive
     lactive = False
     import lora

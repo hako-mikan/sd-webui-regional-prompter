@@ -7,12 +7,20 @@ import torchvision.transforms.functional as F
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
 
 TOKENSCON = 77
-TOKENS = 75
 
 pmasks = {}
 pmaskshw =[]
 pmasksf = {}
 maskready = False
+
+def round_dim(x,y):
+    """Return division of two numbers, rounding 0.5 up.
+    
+    Seems that dimensions which are exactly 0.5 are rounded up - see 680x488, second iter.
+    A simple mod check should get the job done.
+    If not, can always brute force the divisor with +-1 on each of h/w.
+    """
+    return x // y + (x % y >= y // 2)
 
 def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0):
     
@@ -137,14 +145,14 @@ def hook_forward(self, module):
             
             i = 0
             outb = None
-            if self.usebase:
+            if (self.usebase and pn) or (self.usenbase and not pn):
                 context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
                 # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
                 cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
-                i = i + 1 + self.basebreak
+                i = i + 1
                 out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step)
 
                 if len(self.nt) == 1 and not pn:
@@ -171,7 +179,7 @@ def hook_forward(self, module):
                         context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                         
                     if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
-                    i = i + 1 + dcell.breaks
+                    i = i + 1
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
                     out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step)
@@ -195,7 +203,7 @@ def hook_forward(self, module):
                         out = out[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
                                     int(dsw*dcell.st) + addin:int(dsw*dcell.ed),:]
                         if self.debug : print(f"{int(dsh*drow.st) + addout}:{int(dsh*drow.ed)},{int(dsw*dcell.st) + addin}:{int(dsw*dcell.ed)}")
-                        if self.usebase : 
+                        if (self.usebase and pn) or (self.usenbase and not pn):
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
                             outb_t = outb[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
                                             int(dsw*dcell.st) + addin:int(dsw*dcell.ed),:].clone()
@@ -204,7 +212,7 @@ def hook_forward(self, module):
                         out = out[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
                                   int(dsw*drow.st) + addout:int(dsw*drow.ed),:]
                         if self.debug : print(f"{int(dsh*dcell.st) + addin}:{int(dsh*dcell.ed)}-{int(dsw*drow.st) + addout}:{int(dsw*drow.ed)}")
-                        if self.usebase : 
+                        if (self.usebase and pn) or (self.usenbase and not pn):
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
                             outb_t = outb[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
                                           int(dsw*drow.st) + addout:int(dsw*drow.ed),:].clone()
@@ -237,7 +245,7 @@ def hook_forward(self, module):
             # Base forward.
             i = 0
             outb = None
-            if self.usebase:
+            if (self.usebase and pn) or (self.usenbase and not pn):
                 context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
                 # SBM Controlnet sends extra conds at the end of context, apply it to all regions.
                 cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
@@ -262,8 +270,10 @@ def hook_forward(self, module):
             for rmask in self.regmasks:
                 # Need to delay mask tensoring so it's on the correct gpu.
                 # Dunno if caching masks would be an improvement.
-                if self.usebase:
+                if (self.usebase and pn) or (self.usenbase and not pn):
                     bweight = self.bratios[0][i - 1]
+                elif i == 0: # When not in base, make sure the first mask contains noncoloured regions.
+                    rmask = self.regcmb
                 # Resize mask to current dims.
                 # Since it's a mask, we prefer a binary value, nearest is the only option.
                 rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
@@ -286,11 +296,11 @@ def hook_forward(self, module):
                     return out
                     
                 out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
-                if self.usebase:
+                if (self.usebase and pn) or (self.usenbase and not pn):
                     out = out * (1 - bweight) + outb * bweight
                 ox = ox + out * rmask2
 
-            if self.usebase:
+            if (self.usebase and pn) or (self.usenbase and not pn):
                 rmask = self.regbase
                 rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
                 rmask2 = rmask2.reshape(1, dsh, dsw, 1)
