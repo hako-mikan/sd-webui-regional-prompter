@@ -59,6 +59,13 @@ PRESETSDEF =[
 
 ATTNSCALE = 8 # Initial image compression in attention layers.
 
+fhurl = lambda url, label: r"""<a href="{}">{}</a>""".format(url, label)
+GUIDEURL = r"https://github.com/hako-mikan/sd-webui-regional-prompter"
+MATRIXURL = GUIDEURL + r"#2d-region-assignment"
+MASKURL = GUIDEURL + r"#mask-regions-aka-inpaint-experimental-function"
+PROMPTURL = GUIDEURL + r"#region-specification-by-prompt-experimental"
+PROMPTURL2 = GUIDEURL + r"/blob/main/prompt_ja.md"
+
 def ui_tab(mode, submode):
     """Structures components for mode tab.
     
@@ -66,6 +73,8 @@ def ui_tab(mode, submode):
     """
     vret = None
     if mode == "Matrix":
+        with gr.Row():
+            mguide = gr.HTML(value = fhurl(MATRIXURL, "Matrix mode guide")) 
         with gr.Row():
             mmode = gr.Radio(label="Split mode", choices=submode, value="Horizontal", type="value", interactive=True)
             ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
@@ -79,6 +88,8 @@ def ui_tab(mode, submode):
         # Need to add maketemp function based on base / common checks.
         vret = [mmode, ratios, maketemp, template, areasimg]
     elif mode == "Mask":
+        with gr.Row():
+            xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
         with gr.Row(): # Creep: Placeholder, should probably make this invisible.
             xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True)
         with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
@@ -104,6 +115,9 @@ def ui_tab(mode, submode):
         
         vret = [xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask]
     elif mode == "Prompt":
+        with gr.Row():
+            pguide = gr.HTML(value = fhurl(PROMPTURL, "Prompt mode guide"))
+            pguide2 = gr.HTML(value = fhurl(PROMPTURL2, "Extended prompt guide (jp)"))
         with gr.Row():
             pmode = gr.Radio(label="Prompt mode", choices=submode, value="Prompt", type="value", interactive=True)
             threshold = gr.Textbox(label = "threshold", value = 0.4, interactive=True)
@@ -224,6 +238,7 @@ class Script(modules.scripts.Script):
         with gr.Accordion("Regional Prompter", open=False, elem_id="RP_main"):
             with gr.Row():
                 active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
+                urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
             with gr.Row():
                 # mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
                 calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
