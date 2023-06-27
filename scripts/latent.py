@@ -174,6 +174,16 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                 if self.lateneg: # Neg region filters.
                     self.filtersn = makefilters(x.shape[1], x.shape[2], x.shape[3],
                                                 masks, self.mode, self.usenbase, self.bratios, self.indmaskmode, self.pdn)
+                    # Match each neg filter with pos, and remove the ones which are all zeroes.
+                    areasn = len(self.filtersn)
+                    self.dfiltersn = dict() 
+                    for b in range(batch):
+                        for a in range(areas - areasn):
+                            for na in range(areasn):
+                                self.dfiltersn[(b,a,na)] = self.filters[a] * self.filtersn[na]
+                                if self.dfiltersn[(b,a,na)].sum() == 0: # All values are nonneg so a sum test is faster.
+                                    self.dfiltersn[(b,a,na)] = None
+                                    
                     self.filtersn = [f for f in self.filtersn] * batch # SBM This seems redundant, could loop the same items.
         else:
             if not att.maskready:
@@ -209,9 +219,9 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                                                  + x[x.size()[0]+(b-batch), :, :, :])
                     # Regional negation.
                     for na in range(areasn):
-                        x[a + b * areas, :, :, :] -= (x[areas - areasn + na + b * areas, :, :, :]
-                                                      * self.filters[a + b * areas]
-                                                      * self.filtersn[na + b*areas])
+                        if self.dfiltersn[(b,a,na)] is not None:
+                            x[a + b * areas, :, :, :] -= (x[areas - areasn + na + b * areas, :, :, :]
+                                                          * self.dfiltersn[(b,a,na)])
             
             # I believe the neg zones must be nullified completely since they're ANDed.
             # Which means setting to the global neg.
