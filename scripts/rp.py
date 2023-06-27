@@ -334,9 +334,24 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+        # Check if extension is in use.
+        prompt = p.prompt
+        if type(prompt) == list:
+            prompt = prompt[0]
+        indstop = False
         if not active:
+            indstop = True
+        elif KEYBRK not in replace_keys(prompt, KEYBRK):
+            indstop = True
+        if indstop:
             unloader(self,p)
+            # Fsr, if self.all are emptied in init and extension is on,
+            # then in processing self.all has the prompt and p.all is [], leading to crash in info.
+            # Weird, but easily corrected. 
+            self.all_prompts = p.all_prompts.copy()
+            self.all_negative_prompts = p.all_negative_prompts.copy()
             return p
+        p.prompt = prompt
 
         p.extra_generation_params.update({
             "RP Active":active,
@@ -361,8 +376,6 @@ class Script(modules.scripts.Script):
                      usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
 
         self.__init__()
-
-        if type(p.prompt) == list:p.prompt = p.promot[0]
 
         self.active = True
         self.mode = tabs2mode(rp_selected_tab, mmode, xmode, pmode)
