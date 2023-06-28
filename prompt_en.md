@@ -1,6 +1,6 @@
 ## Tutorial on specifying regions with prompts
 
-There are limitations to methods of specifying areas in advance. This is because specifying areas can be a hindrance when designating complex shapes or dynamic compositions. In the region specified by the prompt, the area is determined after the image generation has begun. This allows us to accommodate compositions and complex areas.
+There are limitations to methods of specifying regions in advance. This is because specifying regions can be a hindrance when designating complex shapes or dynamic compositions. In the region specified by the prompt, the region is determined after the image generation has begun. This allows us to accommodate compositions and complex regions.
 
 Let's take a look at an example.
 The following image was created by the next prompt. It's a grand color transition.
@@ -9,13 +9,13 @@ sfw (8k realistic masterpiece:1.3) a Asian girl ,dark green dress,pink belt,yell
 blond hair, in rainy street, holding red umbrella
 ```
 ![1](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial9.png)  
-Now, if we try to manage this with the usual area designation, we will have trouble specifying the area for the umbrella and the bag. They appear in various places, and some areas are initially small.
+Now, if we try to manage this with the usual region designation, we will have trouble specifying the region for the umbrella and the bag. They appear in various places, and some regions are initially small.
 
-With prompt-based area specification, we calculate the area corresponding to each word.
+With prompt-based region specification, we calculate the region corresponding to each word.
 
-Let's first turn the umbrella red. We change the prompt as follows: we change red umbrella to umbrella and after BREAK, we add (red:1.7), umbrella. This is because the system calculates the area of the word written after the last comma in the prompt following BREAK. In the case of (red:1.7), umbrella, the area of umbrella is calculated, and (red:1.7) is applied to that area.
+Let's first turn the umbrella red. We change the prompt as follows: we change red umbrella to umbrella and after BREAK, we add (red:1.7), umbrella. This is because the system calculates the region of the word written after the last comma in the prompt following BREAK. In the case of (red:1.7), umbrella, the region of umbrella is calculated, and (red:1.7) is applied to that region.
 
-Intensity adjustment is very important. Normally, if you input 1.7, it tends to fall apart, but with prompt-based area specification, it doesn't work unless you put in about this value. It's especially better to increase the intensity if you're trying to specify a color that doesn't seem to have learned much.
+Intensity adjustment is very important. Normally, if you input 1.7, it tends to fall apart, but with prompt-based region specification, it doesn't work unless you put in about this value. It's especially better to increase the intensity if you're trying to specify a color that doesn't seem to have learned much.
 ```
 sfw (8k realistic masterpiece:1.3) a girl, (dress:1.2), belt, bag, hair, in rainy street, holding umbrella BREAK
 (red:1.7), umbrella  
@@ -27,9 +27,9 @@ Calcmode : Attention
 threshold : 0.7
 negative common prompt : Enable
 ```
-Prompt-EX mode is an effective mode for specifying multiple areas and has the effect of overwriting areas with the ones that come later. Therefore, it is effective to specify the areas in a larger order.
+Prompt-EX mode is an effective mode for specifying multiple regions and has the effect of overwriting regions with the ones that come later. Therefore, it is effective to specify the regions in a larger order.
 
-Then the umbrella became properly red. The second image is the calculated area. It's properly shaped like an umbrella, and the head part is out of the area. This area varies depending on the prompt, so it's necessary to adjust it with the Threshold. If the Threshold is small, the area will be wider.
+Then the umbrella became properly red. The second image is the calculated region. It's properly shaped like an umbrella, and the head part is out of the region. This region varies depending on the prompt, so it's necessary to adjust it with the Threshold. If the Threshold is small, the region will be wider.
 ![1](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial11.png)
 
 Here, negative prompts are also set up.
@@ -37,7 +37,7 @@ Here, negative prompts are also set up.
 nsfw, (worst quality:1.6), (low quality:1.6), (normal quality:1.6), monochrome 
 [(black:1.5)::3] BREAK BREAK (dark,transparent, black, blue:2)  
 ```
-Umbrellas and bags tend to be predominantly black in the data the model was trained on, so caution is required when specifying colors for them. In this case, we've added a prompt to prevent the umbrella area from becoming black. The reason there are two BREAKs is because nega is enabled. [(black:1.5)::3] prevents the image from becoming black before the region specification by the prompt begins. In the region specification by the prompt, the calculation of the region is not valid until the third step.
+Umbrellas and bags tend to be predominantly black in the data the model was trained on, so caution is required when specifying colors for them. In this case, we've added a prompt to prevent the umbrella region from becoming black. The reason there are two BREAKs is because nega is enabled. [(black:1.5)::3] prevents the image from becoming black before the region specification by the prompt begins. In the region specification by the prompt, the calculation of the region is not valid until the third step.
 
 Now, with similar region specification, the prompt becomes as follows, and we were able to obtain a result where the colors were properly separated.
 
