@@ -345,7 +345,6 @@ class Script(modules.scripts.Script):
         #    indstop = True
         if indstop:
             unloader(self,p)
-            self.unloader(p)
             # Fsr, if self.all are emptied in init and extension is on,
             # then in processing self.all has the prompt and p.all is [], leading to crash in info.
             # Weird, but easily corrected. 
