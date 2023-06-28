@@ -63,7 +63,7 @@ fhurl = lambda url, label: r"""<a href="{}">{}</a>""".format(url, label)
 GUIDEURL = r"https://github.com/hako-mikan/sd-webui-regional-prompter"
 MATRIXURL = GUIDEURL + r"#2d-region-assignment"
 MASKURL = GUIDEURL + r"#mask-regions-aka-inpaint-experimental-function"
-PROMPTURL = GUIDEURL + r"#region-specification-by-prompt-experimental"
+PROMPTURL = GUIDEURL + r"/blob/main/prompt_en.md"
 PROMPTURL2 = GUIDEURL + r"/blob/main/prompt_ja.md"
 
 def ui_tab(mode, submode):
