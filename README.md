@@ -11,7 +11,7 @@
 
 ### Updates
 - New feature : [regions by inpaint](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
-- New feature : [regions by prompt](#divprompt) ([Tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_en.md),) 
+- New feature : [regions by prompt](#divprompt) ([Tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_en.md)) 
 - 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
 - 新機能 : [プロンプトによる領域指定](#divprompt) ([チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md))
 
