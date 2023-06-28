@@ -97,7 +97,7 @@ girl in street shirt,bottoms daytime BREAK
 (forest printed:1.3) T-shirt ,shirt BREAK
 (red skirt:1.7) ,bottoms
 ```
-third image .
+third image is made from this prompt.
 ![5](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial5.png)   
 Keeping it as `shortshorts` only changes the area around the `shortshorts`, but if you change `shortshorts` to `bottoms`, it changes the base, which changes the whole image. In other words, with prompt-based specifications, you can do something like inpainting where only a part is changed.
 
