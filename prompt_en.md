@@ -1,4 +1,4 @@
-Tutorial on specifying areas with prompts
+## Tutorial on specifying regions with prompts
 
 There are limitations to methods of specifying areas in advance. This is because specifying areas can be a hindrance when designating complex shapes or dynamic compositions. In the region specified by the prompt, the area is determined after the image generation has begun. This allows us to accommodate compositions and complex areas.
 
