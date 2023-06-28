@@ -73,7 +73,7 @@ threshold : 0.7
 
 With these settings, the generation will look like this.  
 ![2](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial2.png)  
-実際に生成されたマスクはこんな感じです。    
+mask   
 ![3](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial3.png)    
 This is a property of the Attention mode, where it actually shrinks to about 12×8, making it more ambiguous, which might be better.
 
@@ -97,7 +97,7 @@ girl in street shirt,bottoms daytime BREAK
 (forest printed:1.3) T-shirt ,shirt BREAK
 (red skirt:1.7) ,bottoms
 ```
-で作った画像を三番目に置きました。  
+third image .
 ![5](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/ptutorial5.png)   
 Keeping it as `shortshorts` only changes the area around the `shortshorts`, but if you change `shortshorts` to `bottoms`, it changes the base, which changes the whole image. In other words, with prompt-based specifications, you can do something like inpainting where only a part is changed.
 
