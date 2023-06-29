@@ -10,6 +10,10 @@
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
 ### Updates
+- prompt mode improved
+- プロンプトモードの動作が改善しました
+(The process has been adjusted to generate masks in three steps, and to recommence generation from the first stage./3ステップでマスクを生成し、そこから生成を1stepからやり直すよう修正しました)
+
 - New feature : [regions by inpaint](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
 - New feature : [regions by prompt](#divprompt) ([Tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_en.md)) 
 - 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
