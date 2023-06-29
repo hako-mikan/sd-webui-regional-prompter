@@ -127,8 +127,9 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                     allmask.append(mask)     
                 att.pmasksf[key] = allmask
 
-            if not att.maskready and params:
+            if not att.maskready and not self.rebacked: 
                 cloneparams(self,params)
+                self.rebacked = True
             att.maskready = True
 
     if self.lactive or self.lpactive:

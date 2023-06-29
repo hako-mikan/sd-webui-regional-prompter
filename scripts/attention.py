@@ -461,6 +461,7 @@ def reset_pmasks(self): # init parameters in every batch
     pmasksf = {}
     maskready = False
     self.x = None
+    self.rebacked = False
     return self
 
 
