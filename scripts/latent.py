@@ -58,6 +58,12 @@ def setuploras(self,p):
 
     return self
 
+def cloneparams(orig,target):
+    target.x = orig.x.clone()
+    target.image_cond  = orig.image_cond.clone()
+    target.sigma  = orig.sigma.clone()
+    print("called")
+
 ###################################################
 ###### Latent Method denoise call back
 # Using the AND syntax with shared.batch_cond_uncond = False
@@ -80,6 +86,7 @@ def setuploras(self,p):
 
 def denoiser_callback_s(self, params: CFGDenoiserParams):
     if self.modep:  # in Prompt mode, make masks from sum of attension maps
+        if self.x == None : cloneparams(params,self)
         self.step = params.sampling_step
         self.calced = False
         if self.pe == [] : return
@@ -120,7 +127,9 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                         masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
                     allmask.append(mask)     
                 att.pmasksf[key] = allmask
-        
+
+            if not att.maskready and params:
+                cloneparams(self,params)
             att.maskready = True
 
     if self.lactive or self.lpactive:

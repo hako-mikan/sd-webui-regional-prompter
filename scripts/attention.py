@@ -460,6 +460,7 @@ def reset_pmasks(self): # init parameters in every batch
     pmaskshw =[]
     pmasksf = {}
     maskready = False
+    self.x = None
     return self
 
 
