@@ -11,7 +11,7 @@
 
 ### Updates
 - prompt mode improved
-- プロンプトモードの動作が改善しました
+- プロンプトモードの動作が改善しました  
 (The process has been adjusted to generate masks in three steps, and to recommence generation from the first stage./3ステップでマスクを生成し、そこから生成を1stepからやり直すよう修正しました)
 
 - New feature : [regions by inpaint](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
