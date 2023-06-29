@@ -62,7 +62,6 @@ def cloneparams(orig,target):
     target.x = orig.x.clone()
     target.image_cond  = orig.image_cond.clone()
     target.sigma  = orig.sigma.clone()
-    print("called")
 
 ###################################################
 ###### Latent Method denoise call back
