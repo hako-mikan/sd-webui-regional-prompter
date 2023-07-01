@@ -98,8 +98,8 @@ def ui_tab(mode, submode):
         with gr.Row():
             with gr.Column():
                 num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
-                canvas_width = gr.Slider(label="Canvas Width", minimum=64, maximum=2048, value=512, step=8)
-                canvas_height = gr.Slider(label="Canvas Height", minimum=64, maximum=2048, value=512, step=8)
+                canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8)
+                canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8)
                 btn = gr.Button(value = "Draw region + show mask")
                 # btn2 = gr.Button(value = "Display mask") # Not needed.
                 cbtn = gr.Button(value="Create mask area")
