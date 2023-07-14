@@ -2,6 +2,8 @@ import os.path
 from importlib import reload
 from pprint import pprint
 import gradio as gr
+import numpy as np
+from PIL import Image
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared, extra_networks
@@ -334,6 +336,10 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+        polymask = "G:\\AI\\stable-diffusion-webui\\extensions\\sd-webui-regional-prompter\\regional_masks\\lastrun.png"
+        if type(polymask) == str:
+            polymask,_,_ = draw_image(np.array(Image.open(polymask)))
+        print(polymask)
         # Check if extension is in use.
         prompt = p.prompt
         if type(prompt) == list:
