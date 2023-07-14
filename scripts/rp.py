@@ -336,7 +336,6 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
-        polymask = "G:\\AI\\stable-diffusion-webui\\extensions\\sd-webui-regional-prompter\\regional_masks\\lastrun.png"
         if type(polymask) == str:
             polymask,_,_ = draw_image(np.array(Image.open(polymask)))
         print(polymask)
