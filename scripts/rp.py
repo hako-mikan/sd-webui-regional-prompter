@@ -253,7 +253,7 @@ class Script(modules.scripts.Script):
                 usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
             
             # Tabbed modes.
-            with gr.Tabs(elem_id="RP_mode"):
+            with gr.Tabs(elem_id="RP_mode") as tabs:
                 rp_selected_tab = gr.State("Matrix") # State component to document current tab for gen.
                 # ltabs = []
                 ltabp = []
@@ -263,7 +263,7 @@ class Script(modules.scripts.Script):
                         ltabp.append(ui_tab(md, smd))
                     # Tab switch tags state component.
                     tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
-            
+
             # Hardcode expansion back to components for any specific events.
             (mmode, ratios, maketemp, template, areasimg) = ltabp[0]
             (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
@@ -281,12 +281,21 @@ class Script(modules.scripts.Script):
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
+
+            mode = gr.Textbox(value = "Matrix",visible = False)
+
+            def changetabs(mode):
+                modes = ["Matrix", "Mask", "Prompt"]
+                if mode not in modes: mode = "Maxtix"
+                return gr.Tabs.update(selected="t"+mode)
+
+            mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
             settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
         
         self.infotext_fields = [
                 (active, "RP Active"),
                 # (mode, "RP Divide mode"),
-                (rp_selected_tab, "RP Divide mode"),
+                (mode, "RP Divide mode"),
                 (mmode, "RP Matrix submode"),
                 (xmode, "RP Mask submode"),
                 (pmode, "RP Prompt submode"),
@@ -336,9 +345,9 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+        polymask = "G:\\AI\\stable-diffusion-webui\\extensions\\sd-webui-regional-prompter\\regional_masks\\lastrun.png"
         if type(polymask) == str:
             polymask,_,_ = draw_image(np.array(Image.open(polymask)))
-        print(polymask)
         # Check if extension is in use.
         prompt = p.prompt
         if type(prompt) == list:
