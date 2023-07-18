@@ -15,7 +15,6 @@ orig_lora_Linear_forward = None
 orig_lora_Conv2d_forward = None
 lactive = False
 labug =False
-pactive = False
 MINID = 1000
 MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
@@ -36,7 +35,7 @@ def setloradevice(self):
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
 
-def setuploras(self,p):
+def setuploras(self):
     import lora
     global orig_lora_forward,orig_lora_apply_weights,lactive, orig_lora_Linear_forward, orig_lora_Conv2d_forward, lactive, labug
     lactive = True
@@ -55,8 +54,6 @@ def setuploras(self,p):
         if self.debug : print("hijack lora_forward")
         orig_lora_forward = lora.lora_forward
         lora.lora_forward = lora_forward
-
-    return self
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -84,74 +81,75 @@ def cloneparams(orig,target):
 # [Batch2-Area2, Batch2-Area3] -> [Batch1-Area3, Batch2-Area3] 
 
 def denoiser_callback_s(self, params: CFGDenoiserParams):
-    if self.modep:  # in Prompt mode, make masks from sum of attension maps
-        if self.x == None : cloneparams(params,self)
+    if "Pro" in self.mode:  # in Prompt mode, make masks from sum of attension maps
+        if self.x == None : cloneparams(params,self) # return to step 0 if mask is ready
         self.step = params.sampling_step
-        self.calced = False
-        if self.pe == [] : return
+        self.pfirst = True
 
-        if self.calcmode == "Latent":
-            self.filters  = []
-            for b in range(self.batch_size):
-                if len(att.pmaskshw) < 3: return
-                allmask = []
-                basemask = None
-                for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                    key = f"{t}-{b}"
-                    _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
-                    mask = mask.repeat(params.x.shape[1],1,1)
-                    basemask = 1 - mask if basemask is None else basemask - mask
-                    allmask.append(mask)
-                    if self.ex:
-                        for l in range(len(allmask) - 1):
-                            mt = allmask[l] - mask
-                            allmask[l] = torch.where(mt > 0, 1,0)
-                basemask = torch.where(basemask > 0 , 1,0)
-                allmask.insert(0,basemask)
-                self.filters.extend(allmask)
-                self.neg_filters.extend([1- f for f in allmask])
+        if len(att.pmaskshw) > 3:
+            if "La" in self.calc:
+                self.filters = []
+                for b in range(self.batch_size):
 
-            att.maskready = True
-        
-        else:    
-            for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                if len(att.pmaskshw) < 3: return
-                allmask = []
-                for hw in att.pmaskshw:
-                    masks = None
-                    for b in range(self.batch_size):
+                    allmask = []
+                    basemask = None
+                    for t, th, bratio in zip(self.pe, self.th, self.bratios):
                         key = f"{t}-{b}"
-                        _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
-                        mask = mask.unsqueeze(0).unsqueeze(-1)
-                        masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
-                    allmask.append(mask)     
-                att.pmasksf[key] = allmask
+                        _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
+                        mask = mask.repeat(params.x.shape[1],1,1)
+                        basemask = 1 - mask if basemask is None else basemask - mask
+                        if self.ex:
+                            for l in range(len(allmask)):
+                                mt = allmask[l] - mask
+                                allmask[l] = torch.where(mt > 0, 1,0)
+                        allmask.append(mask)
+                    if not self.ex:
+                        sum = torch.stack(allmask, dim=0).sum(dim=0)
+                        sum = torch.where(sum == 0, 1 , sum)
+                        allmask = [mask  / sum for mask in allmask]
+                    basemask = torch.where(basemask > 0, 1, 0)
+                    allmask.insert(0,basemask)
+                    self.filters.extend(allmask)
+                att.maskready = True
+            else:    
+                for t, th, bratio in zip(self.pe, self.th, self.bratios):
+                    allmask = []
+                    for hw in att.pmaskshw:
+                        masks = None
+                        for b in range(self.batch_size):
+                            key = f"{t}-{b}"
+                            _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
+                            mask = mask.unsqueeze(0).unsqueeze(-1)
+                            masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
+                        allmask.append(mask)     
+                    att.pmasksf[key] = allmask
+                    att.maskready = True
 
-            if not att.maskready and not self.rebacked: 
+            if not self.rebacked: 
                 cloneparams(self,params)
                 self.rebacked = True
-            att.maskready = True
 
-    if self.lactive or self.lpactive:
+    if "La" in self.calc:
         xt = params.x.clone()
         ict = params.image_cond.clone()
         st =  params.sigma.clone()
+        batch = self.batch_size
+        areas = xt.shape[0] // batch -1
         # SBM Stale version workaround.
         if hasattr(params,"text_cond"):
             ct =  params.text_cond.clone()
-        areas = xt.shape[0] // self.batch_size -1
 
         for a in range(areas):
-            for b in range(self.batch_size):
-                params.x[b+a*self.batch_size] = xt[a + b * areas]
-                params.image_cond[b+a*self.batch_size] = ict[a + b * areas]
-                params.sigma[b+a*self.batch_size] = st[a + b * areas]
+            for b in range(batch):
+                params.x[b+a*batch] = xt[a + b * areas]
+                params.image_cond[b+a*batch] = ict[a + b * areas]
+                params.sigma[b+a*batch] = st[a + b * areas]
                 # SBM Stale version workaround.
                 if hasattr(params,"text_cond"):
-                    params.text_cond[b+a*self.batch_size] = ct[a + b * areas]
+                    params.text_cond[b+a*batch] = ct[a + b * areas]
 
 def denoised_callback_s(self, params: CFGDenoisedParams):
-    if self.lactive or self.lpactive:
+    if "La" in self.calc:
         x = params.x
         xt = params.x.clone()
         batch = self.batch_size
@@ -159,45 +157,27 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
         # x.shape = [batch_size, C, H // 8, W // 8]
 
-        indrebuild = False
-        if self.filters == [] :
-            indrebuild = True
-        elif self.filters[0].size() != x[0].size():
-            indrebuild = True
-        if indrebuild:
-            if self.indmaskmode:
-                masks = (self.regmasks,self.regbase)
-            else:
-                masks = self.aratios
+        if not "Pro" in self.mode:
+            indrebuild = self.filters == [] or self.filters[0].size() != x[0].size()
 
-        if not self.lpactive:
             if indrebuild:
-                if self.indmaskmode:
+                if "Mask" in self.mode:
                     masks = (self.regmasks,self.regbase)
                 else:
                     masks = self.aratios  #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, self.indmaskmode)
+                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
                 self.filters = [f for f in self.filters]*batch
-                self.neg_filters = [1- f for f in self.filters]
         else:
             if not att.maskready:
                 self.filters = [1,*[0 for a in range(areas - 1)]] * batch
-                self.neg_filters = [1 - f for f in self.filters]
 
         if self.debug : print("filterlength : ",len(self.filters))
 
-        if labug : 
-            for i in range(params.x.shape[0]):
-                print(torch.max(params.x[i]))
-
-        for b in range(batch):
-            for a in range(areas):
-                x[a + b * areas] = xt[b+a*batch]
-
         for b in range(batch):
             for a in range(areas) :
-                if self.debug : print(f"x = {x.size()}i = {a + b*areas}, cond = {a + b*areas}, uncon = {x.size()[0]+(b-batch)}")
-                x[a + b*areas, :, :, :] =  x[a + b*areas, :, :, :] * self.filters[a + b*areas] + x[x.size()[0]+(b-batch), :, :, :] * self.neg_filters[a + b*areas]
+                fil = self.filters[a + b*areas]
+                if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
+                x[a + b * areas, :, :, :] =  xt[b + a*batch, :, :, :] * fil + x[x.size()[0]+(b-batch), :, :, :] * (1 - fil)
 
 ######################################################
 ##### Latent Method
