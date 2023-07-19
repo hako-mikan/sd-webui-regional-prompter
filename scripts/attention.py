@@ -110,7 +110,7 @@ def hook_forward(self, module):
         # SBM Matrix mode.
         def matsepcalc(x,contexts,mask,pn,divide):
             xs = x.size()[1]
-            (dsh,dsw) = split_dims(xs, height, width, debug = self.debug)
+            (dsh,dsw) = split_dims(xs, height, width, self)
             
             if "Horizontal" in self.mode: # Map columns / rows first to outer / inner.
                 dsout = dsw
@@ -215,7 +215,7 @@ def hook_forward(self, module):
 
         def masksepcalc(x,contexts,mask,pn,divide):
             xs = x.size()[1]
-            (dsh,dsw) = split_dims(xs, height, width, debug = self.debug)
+            (dsh,dsw) = split_dims(xs, height, width, self)
 
             tll = self.pt if pn else self.nt
             
@@ -397,8 +397,7 @@ def hook_forward(self, module):
 
     return forward
 
-
-def split_dims(xs, height, width,**kwargs):
+def split_dims(xs, height, width, self):
     """Split an attention layer dimension to height + width.
     
     Originally, the estimate was dsh = sqrt(hw_ratio*xs),
@@ -422,8 +421,13 @@ def split_dims(xs, height, width,**kwargs):
     scale = math.ceil(math.log2(math.sqrt(height * width / xs)))
     dsh = repeat_div(height,scale)
     dsw = repeat_div(width,scale)
-    if kwargs.get("debug",False) : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
-    
+    if xs > dsh * dsw and hasattr(self,"nei_multi"):
+        dsh, dsw = self.nei_multi[1], self.nei_multi[0] 
+        while dsh*dsw != xs:
+            dsh, dsw = dsh//2, dsw//2
+
+    if self.debug : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
+
     return dsh,dsw
 
 def repeat_div(x,y):

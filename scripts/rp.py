@@ -331,7 +331,7 @@ class Script(modules.scripts.Script):
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask])
 
         tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
-        if not any(key in tprompt for key in ALLALLKEYS):
+        if not any(key in tprompt for key in ALLALLKEYS) or not active:
             return unloader(self,p)
 
         p.extra_generation_params.update({
@@ -355,7 +355,7 @@ class Script(modules.scripts.Script):
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
                      usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
 
-        self.__init__(True, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size)
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size)
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
 
@@ -409,6 +409,7 @@ class Script(modules.scripts.Script):
             self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
             denoiserdealer(self)
 
+        neighbor(self,p)                                                            #detect other extention
         keyreplacer(p)                                                      #replace all keys to BREAK
         commondealer(p, usecom, usencom)                     #add commom prompt to all region
         anddealer(self, p , calcmode)                                 #replace BREAK to AND in Latent mode
@@ -601,6 +602,14 @@ def bratioprompt(self, bratios):
     while len(self.pe) >= len(bratios) + 1:
         bratios.append(bratios[0])
     self.bratios = bratios
+
+def neighbor(self,p):
+    args = p.script_args
+    multi = ["MultiDiffusion",'Mixture of Diffusers']
+    if any(x in args for x in multi):
+        for key in multi:
+            if key in args:
+                self.nei_multi = [args[args.index(key)+5],args[args.index(key)+6]]
 
 #####################################################
 ##### Presets - Save  and Load Settings
