@@ -429,7 +429,7 @@ class Script(modules.scripts.Script):
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
         # print(kwargs["prompts"])
-        if active:
+        if self.active:
             resetpcache(p)
             # SBM Before_process_batch was added in feb-mar, adding fallback.
             if not hasattr(self,"current_prompts"):
