@@ -604,12 +604,15 @@ def bratioprompt(self, bratios):
     self.bratios = bratios
 
 def neighbor(self,p):
-    args = p.script_args
-    multi = ["MultiDiffusion",'Mixture of Diffusers']
-    if any(x in args for x in multi):
-        for key in multi:
-            if key in args:
-                self.nei_multi = [args[args.index(key)+5],args[args.index(key)+6]]
+    try:
+        args = p.script_args
+        multi = ["MultiDiffusion",'Mixture of Diffusers']
+        if any(x in args for x in multi):
+            for key in multi:
+                if key in args:
+                    self.nei_multi = [args[args.index(key)+5],args[args.index(key)+6]]
+    except:
+        pass
 
 #####################################################
 ##### Presets - Save  and Load Settings
