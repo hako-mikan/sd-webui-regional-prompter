@@ -63,7 +63,7 @@ This extention is enabled only if "Active" is toggled.
 Prompts for different regions are separated by `BREAK` keywords. 
 Negative prompts can also be set for each area by separating them with `BREAK`, but if `BREAK` is not entered, the same negative prompt will be set for all areas.
 
-Using `ADDROW` or `ADDCOL` anywhere in the prompt will automatically activate [2D region mode](#2d-region-assignment-experimental-function).
+Using `ADDROW` or `ADDCOL` anywhere in the prompt will automatically activate [2D region mode](#2D).
 
 ### Use base prompt
 Check this if you want to use the base prompt, which is the same prompt for all areas. Use this option if you want the prompt to be consistent across all areas.
