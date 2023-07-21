@@ -162,7 +162,7 @@ def compress_components(l):
     return [mode] + l[len(RPMODES) + 1:]
     
 class Script(modules.scripts.Script):
-    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1):
+    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False):
         self.active = active
         self.mode = mode
         self.calc = calc
@@ -173,11 +173,13 @@ class Script(modules.scripts.Script):
         self.usecom = usecom
         self.usencom = usencom
         self.batch_size = batch
+        self.isxl = isxl
 
         self.aratios = []
         self.bratios = []
         self.divide = 0
         self.count = 0
+        self.eq = True
         self.pn = True
         self.hr = False
         self.hr_scale = 0
@@ -321,7 +323,7 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
-        if type(polymask) == str and not polymask:
+        if type(polymask) == str:
             try:
                 polymask,_,_ = draw_image(np.array(Image.open(polymask)))
             except:
@@ -355,7 +357,7 @@ class Script(modules.scripts.Script):
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
                      usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
 
-        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size)
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"))
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
 
@@ -377,7 +379,8 @@ class Script(modules.scripts.Script):
                 print("Warning: Nonstandard height / width for ulscaled size")
                 self.hr_h = self.hr_h - self.hr_h % ATTNSCALE
                 self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
-                
+    
+        loraverchekcer(self)                                                  #check web-ui version
         andtobreak(p, nchangeand)                                          #Change AND to BREAK
         if "Ver" in self.mode or "Hor" in self.mode:
             keyconverter(aratios, self.mode, usecom, usebase, p) #convert BREAKs to ADDROMM/ADDCOL/ADDROW
@@ -399,6 +402,7 @@ class Script(modules.scripts.Script):
                 shared.batch_cond_uncond = orig_batch_cond_uncond
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
+                print("koko")
                 setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
@@ -409,7 +413,7 @@ class Script(modules.scripts.Script):
             self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
             denoiserdealer(self)
 
-        neighbor(self,p)                                                            #detect other extention
+        neighbor(self,p)                                                    #detect other extention
         keyreplacer(p)                                                      #replace all keys to BREAK
         commondealer(p, usecom, usencom)                     #add commom prompt to all region
         anddealer(self, p , calcmode)                                 #replace BREAK to AND in Latent mode
@@ -419,7 +423,7 @@ class Script(modules.scripts.Script):
         bratioprompt(self, bratios)
         hrdealer(p)
 
-        print(f"pos tokens : {self.ppt}, neg tokens : {self.pnt}")
+        print(f"Regional Prompter Active, Pos tokens : {self.ppt}, Neg tokens : {self.pnt}")
         if debug : debugall(self)
 
     def before_process_batch(self, p, *args, **kwargs):
@@ -546,16 +550,19 @@ def tokendealer(self, p):
     pt, nt, ppt, pnt, tt = [], [], [], [], []
 
     padd = 0
+    
+    tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
+
     for pp in ppl:
-        tokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(pp)
+        tokens, tokensnum = tokenizer(pp)
         pt.append([padd, tokensnum // TOKENS + 1 + padd])
         ppt.append(tokensnum)
         padd = tokensnum // TOKENS + 1 + padd
 
     if "Pro" in self.mode:
         for target in targets:
-            ptokens, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(ppl[0])
-            ttokens, _ = shared.sd_model.cond_stage_model.tokenize_line(target)
+            ptokens, tokensnum = tokenizer(ppl[0])
+            ttokens, _ = tokenizer(target)
 
             i = 1
             tlist = []
@@ -569,7 +576,7 @@ def tokendealer(self, p):
     paddp = padd
     padd = 0
     for np in npl:
-        _, tokensnum = shared.sd_model.cond_stage_model.tokenize_line(np)
+        _, tokensnum = tokenizer(np)
         nt.append([padd, tokensnum // TOKENS + 1 + padd])
         pnt.append(tokensnum)
         padd = tokensnum // TOKENS + 1 + padd
@@ -970,5 +977,14 @@ def resetpcache(p):
     p.cached_uc = [None,None]
     p.cached_hr_c = [None, None]
     p.cached_hr_uc = [None, None]
+
+def loraverchekcer(self):
+    try:
+        import lora
+        self.isbefore15 =  "assign_lora_names_to_compvis_modules" in dir(lora)
+        self.layer_name = "lora_layer_name" if self.isbefore15 else "network_layer_name"
+    except:
+        self.isbefore15 = False
+        self.layer_name = "lora_layer_name"  
 
 on_ui_settings(ext_on_ui_settings)

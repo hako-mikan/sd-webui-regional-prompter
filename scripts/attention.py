@@ -9,7 +9,11 @@ from torchvision.transforms import InterpolationMode, Resize  # Mask.
 TOKENSCON = 77
 TOKENS = 75
 
-def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0):
+def db(self,text):
+    if self.debug:
+        print(text)
+
+def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False):
     
     # Forward.
     h = module.heads
@@ -49,7 +53,8 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
                 pmaskshw.append((height,width))
 
             for t in tokens:
-                add = attn[8*b:8*(b+1),:,t[0]:t[0]+len(t)]**1.2
+                power = 4 if isxl else 1.2
+                add = attn[8*b:8*(b+1),:,t[0]:t[0]+len(t)]**power
                 add = torch.sum(add,dim = 2)
                 t = f"{t}-{b}"         
                 if t not in pmasks:
@@ -79,14 +84,14 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
 ##### Attention mode 
 
 def hook_forward(self, module):
-    def forward(x, context=None, mask=None):
+    def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0):
         if self.debug :
             print("input : ", x.size())
             print("tokens : ", context.size())
-            print("module : ", module.lora_layer_name)
+            print("module : ", getattr(module, self.layer_name,None))
 
         if self.xsize == 0: self.xsize = x.shape[1]
-        if "input" in module.lora_layer_name:
+        if "input" in getattr(module, self.layer_name,None):
             if x.shape[1] > self.xsize:
                 self.in_hr = True
 
@@ -131,18 +136,18 @@ def hook_forward(self, module):
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
                 i = i + 1
-                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step, isxl = self.isxl)
 
                 if len(self.nt) == 1 and not pn:
-                    if self.debug : print("return out for NP")
+                    db(self,"return out for NP")
                     return out
                 # if self.usebase:
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
 
             sumout = 0
-            if self.debug : print(f"tokens : {tll},pn : {pn}")
-            if self.debug : print([r for r in self.aratios])
+            db(self,f"tokens : {tll},pn : {pn}")
+            db(self,[r for r in self.aratios])
 
             for drow in self.aratios:
                 v_states = []
@@ -155,14 +160,14 @@ def hook_forward(self, module):
                     if cnet_ext > 0:
                         context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                         
-                    if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
+                    db(self,f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
-                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step)
-                    if self.debug : print(f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
+                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, isxl = self.isxl)
+                    db(self," dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
                     if len(self.nt) == 1 and not pn:
-                        if self.debug : print("return out for NP")
+                        db(self,"return out for NP")
                         return out
                     # Actual matrix split by region.
                     
@@ -188,13 +193,13 @@ def hook_forward(self, module):
                     elif "Vertical" in self.mode: # Cols are the outer list, rows are cells.
                         out = out[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
                                   int(dsw*drow.st) + addout:int(dsw*drow.ed),:]
-                        if self.debug : print(f"{int(dsh*dcell.st) + addin}:{int(dsh*dcell.ed)}-{int(dsw*drow.st) + addout}:{int(dsw*drow.ed)}")
+                        db(self,f"{int(dsh*dcell.st) + addin}:{int(dsh*dcell.ed)}-{int(dsw*drow.st) + addout}:{int(dsw*drow.ed)}")
                         if self.usebase : 
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
                             outb_t = outb[:,int(dsh*dcell.st) + addin:int(dsh*dcell.ed),
                                           int(dsw*drow.st) + addout:int(dsw*drow.ed),:].clone()
                             out = out * (1 - dcell.base) + outb_t * dcell.base
-                    if self.debug : print(f"sumin:{sumin},sumout:{sumout},dsh:{dsh},dsw:{dsw}")
+                    db(self,f"sumin:{sumin},sumout:{sumout},dsh:{dsh},dsw:{dsw}")
             
                     v_states.append(out)
                     if self.debug : 
@@ -230,16 +235,16 @@ def hook_forward(self, module):
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
                 i = i + 1
-                out = main_forward(module, x, context, mask, divide, self.isvanilla)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl)
 
                 if len(self.nt) == 1 and not pn:
-                    if self.debug : print("return out for NP")
+                    db(self,"return out for NP")
                     return out
                 # if self.usebase:
                 outb = out.clone()
                 outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
 
-            if self.debug : print(f"tokens : {tll},pn : {pn}")
+            db(self,f"tokens : {tll},pn : {pn}")
             
             ox = torch.zeros_like(x)
             ox = ox.reshape(ox.shape[0], dsh, dsw, ox.shape[2])
@@ -261,13 +266,13 @@ def hook_forward(self, module):
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
-                if self.debug : print(f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
+                db(self,f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
                 i = i + 1
                 # if i >= contexts.size()[1]: 
                 #     indlast = True
-                out = main_forward(module, x, context, mask, divide, self.isvanilla)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl)
                 if len(self.nt) == 1 and not pn:
-                    if self.debug : print("return out for NP")
+                    db(self,"return out for NP")
                     return out
                     
                 out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
@@ -287,7 +292,7 @@ def hook_forward(self, module):
             h_states = []
 
             tll = self.pt if pn else self.nt
-            if self.debug : print(f"tokens : {tll},pn : {pn}")
+            db(self,f"tokens : {tll},pn : {pn}")
 
             for i, tl in enumerate(tll):
                 context = contexts[:, tl[0] * TOKENSCON : tl[1] * TOKENSCON, :]
@@ -296,17 +301,17 @@ def hook_forward(self, module):
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                 
-                if self.debug : print(f"tokens : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
+                db(self,f"tokens : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
 
                 userpp = self.pn and i == 0 and self.pfirst
 
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh, tokens = self.pe, step = self.step)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh, tokens = self.pe, step = self.step, isxl = self.isxl)
 
                 if (len(self.nt) == 1 and not pn) or ("Pro" in self.mode and "La" in self.calc):
-                    if self.debug : print("return out for NP or Latent")
+                    db(self,"return out for NP or Latent")
                     return out
 
-                if self.debug : print(scale, dsh, dsw, dsh * dsw, x.size()[1])
+                db(self,[scale, dsh, dsw, dsh * dsw, x.size()[1]])
 
                 if i == 0:
                     outb = out.clone()
@@ -324,8 +329,7 @@ def hook_forward(self, module):
 
             ox = outb.clone() if self.ex else outb * 0
 
-            if self.debug:
-                print(pmaskshw,maskready,(dsh,dsw) in pmaskshw and maskready,len(pmasksf),len(h_states))
+            db(self,[pmaskshw,maskready,(dsh,dsw) in pmaskshw and maskready,len(pmasksf),len(h_states)])
 
             if (dsh,dsw) in pmaskshw and maskready:
                 depth = pmaskshw.index((dsh,dsw))
@@ -345,7 +349,7 @@ def hook_forward(self, module):
                 return outb
 
         if self.eq:
-            if self.debug : print("same token size and divisions")
+            db(self,"same token size and divisions")
             if "Mas" in self.mode:
                 ox = masksepcalc(x, contexts, mask, True, 1)
             elif "Pro" in self.mode:
@@ -353,7 +357,7 @@ def hook_forward(self, module):
             else:
                 ox = matsepcalc(x, contexts, mask, True, 1)
         elif x.size()[0] == 1 * self.batch_size:
-            if self.debug : print("different tokens size")
+            db(self,"different tokens size")
             if "Mas" in self.mode:
                 ox = masksepcalc(x, contexts, mask, self.pn, 1)
             elif "Pro" in self.mode:
@@ -361,7 +365,7 @@ def hook_forward(self, module):
             else:
                 ox = matsepcalc(x, contexts, mask, self.pn, 1)
         else:
-            if self.debug : print("same token size and different divisions")
+            db(self,"same token size and different divisions")
             # SBM You get 2 layers of x, context for pos/neg.
             # Each should be forwarded separately, pairing them up together.
             if self.isvanilla: # SBM Ddim reverses cond/uncond.
@@ -388,11 +392,13 @@ def hook_forward(self, module):
 
         self.count += 1
 
-        if self.count == 16:
+        limit = 70 if self.isxl else 16
+
+        if self.count == limit:
             self.pn = not self.pn
             self.count = 0
             self.pfirst = False
-        if self.debug : print(f"output : {ox.size()}")
+        db(self,f"output : {ox.size()}")
         return ox
 
     return forward
