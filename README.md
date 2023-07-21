@@ -10,6 +10,9 @@
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
 ### Updates
+- support SDXL
+- support web-ui 1.5
+
 - add [guide for API users](#how-to-use-via-api)
 
 - prompt mode improved
