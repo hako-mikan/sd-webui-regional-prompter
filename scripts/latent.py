@@ -9,12 +9,9 @@ from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
 from scripts.regions import floatdef
 
+islora = True
 layer_name = "lora_layer_name"
-orig_lora_forward = None
-orig_lora_apply_weights = None
-orig_lora_Linear_forward = None
-orig_lora_Conv2d_forward = None
-orig_network_Linear_forward = None
+orig_Linear_forward = None
 orig_lora_functional = False
 lactive = False
 labug =False
@@ -39,29 +36,18 @@ def setloradevice(self):
                 changethedevice(l.modules[key])
 
 def setuploras(self):
-    import lora
-    global orig_lora_forward,orig_lora_apply_weights,lactive, orig_lora_Linear_forward, orig_lora_Conv2d_forward, lactive, labug, layer_name, orig_lora_functional 
+    global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
     lactive = True
     labug = self.debug
+    islora = self.isbefore15
     layer_name = self.layer_name
     orig_lora_functional = shared.opts.lora_functional
+    print(shared.opts.lora_functional)
 
-    if not self.isbefore15:
-        import networks
-        orig_lora_Linear_forward = networks.network_Linear_forward
-        torch.nn.Linear.forward = network_Linear_forward
-
-    elif hasattr(lora,"lora_apply_weights"): # for new LoRA applying
-        if self.debug : print("hijack lora_apply_weights")
-
+    if self.isbefore15:
         shared.opts.lora_functional = True
-        orig_lora_Conv2d_forward = torch.nn.Conv2d.forward
-        torch.nn.Linear.forward = lora_Linear_forward
-
-    elif hasattr(lora,"lora_forward"):
-        if self.debug : print("hijack lora_forward")
-        orig_lora_forward = lora.lora_forward
-        lora.lora_forward = lora_forward
+    orig_Linear_forward = torch.nn.Linear.forward
+    torch.nn.Linear.forward = h_Linear_forward
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -307,6 +293,8 @@ def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
 TE_START_NAME = "transformer_text_model_encoder_layers_0_self_attn_q_proj"
 UNET_START_NAME = "diffusion_model_time_embed_0"
 
+TE_START_NAME_XL = "0_transformer_text_model_encoder_layers_0_self_attn_q_proj"
+
 class LoRARegioner:
 
     def __init__(self):
@@ -374,25 +362,22 @@ regioner = LoRARegioner()
 ############################################################
 ##### for new lora apply method in web-ui
 
-def lora_Linear_forward(self, input):
+def h_Linear_forward(self, input):
     changethelora(getattr(self, layer_name, None))
-    import lora
-    return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
-
-def network_Linear_forward(self, input):
-    changethelora(getattr(self, layer_name, None))
-    import networks
-    if shared.opts.lora_functional:
-        return networks.network_forward(self, input, torch.nn.Linear_forward_before_network)
-
-    networks.network_apply_weights(self)
-
-    return torch.nn.Linear_forward_before_network(self, input)
+    if islora:
+        import lora
+        return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
+    else:
+        import networks
+        if shared.opts.lora_functional:
+            return networks.network_forward(self, input, torch.nn.Linear_forward_before_network)
+        networks.network_apply_weights(self)
+        return torch.nn.Linear_forward_before_network(self, input)
 
 def changethelora(name):
     if lactive:
         global regioner
-        if name == TE_START_NAME:
+        if name == TE_START_NAME or name == TE_START_NAME_XL:
             regioner.te_start()
         elif name == UNET_START_NAME:
             regioner.u_start()
@@ -402,7 +387,6 @@ LORAANDSOON = {
     "LoraKronModule" : "w1",
     "LycoKronModule" : "w1",
 }
-
 
 def changethedevice(module):
     ltype = type(module).__name__
@@ -447,31 +431,13 @@ def restoremodel(p):
                 module.lora_weights_backup = None
                 module.lora_current_names = None
 
-
 def unloadlorafowards(p):
-    global orig_lora_Linear_forward, orig_lora_Conv2d_forward, orig_lora_apply_weights, orig_lora_forward, lactive
-    lactive = False
+    global orig_Linear_forward, lactive, labug
+    lactive = labug = False
+    shared.opts.lora_functional =  orig_lora_functional
+
     import lora
-
-    shared.opts.lora_functional =  orig_lora_functional 
-
     lora.loaded_loras.clear()
-    if orig_lora_apply_weights != None :
-        lora.lora_apply_weights = orig_lora_apply_weights
-        orig_lora_apply_weights = None
-
-    if orig_lora_forward != None :
-        lora.lora_forward = orig_lora_forward
-        orig_lora_forward = None
-
-    if orig_lora_Linear_forward != None :
-        torch.nn.Linear.forward = orig_lora_Linear_forward
-        orig_lora_Linear_forward = None
-
-    if orig_lora_Conv2d_forward != None :
-        torch.nn.Conv2d.forward = orig_lora_Conv2d_forward
-        orig_lora_Conv2d_forward = None
-
-    if orig_network_Linear_forward != None :
-        import networks
-        networks.network_Linear_forward = orig_network_Linear_forward
+    if orig_Linear_forward != None :
+        torch.nn.Linear.forward = orig_Linear_forward
+        orig_Linear_forward = None
