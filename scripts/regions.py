@@ -551,7 +551,16 @@ def detect_image_colours(img, inddict = False):
     COLREG = deterministic_colours(2 * MAXCOLREG, COLREG)
     cow = index_rows(COLREG)
     regrows = [cow[(COLREG == f).all(axis = 1)] for f in lfltfix]
-    REGUSE = {reg[0,0]:reg[0,1:].tolist() for reg in regrows if len(reg) > 0}
+    # MAX_KEY_VALUE provides a threshold value. Only those colors are added to REGUSE, for which the key values 
+    # (i.e., the indices of the colors in the 'regrows' array) are less than this threshold.
+    # Colors with indices greater than MAX_KEY_VALUE are considered "similar colors" and are not treated as separate masks. 
+    unique_keys = set(reg[0,0] for reg in regrows if len(reg) > 0)
+    # The purpose of this is to reduce the number of colors being processed, particularly for colors that are 
+    # close to each other, which may be slightly different due to noise in the image or minor differences in color encoding.
+    # By setting an appropriate MAX_KEY_VALUE, these minor color differences can be effectively filtered out, 
+    # thereby reducing the number of colors being processed and making color processing more accurate and efficient.
+    MAX_KEY_VALUE = len(unique_keys) + 20
+    REGUSE = {reg[0,0]: reg[0,1:].tolist() for reg in regrows if len(reg) > 0 and reg[0,0] <= MAX_KEY_VALUE}
     # REGUSE.discard(COLWHITE)
     
     # Must set to dict due to gradio preprocess assertion, in preset load.
