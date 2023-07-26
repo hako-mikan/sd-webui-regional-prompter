@@ -454,6 +454,8 @@ class Script(modules.scripts.Script):
         # print(kwargs["prompts"])
         if self.active:
             resetpcache(p)
+            self.in_hr = False
+            self.xsize = 0
             # SBM Before_process_batch was added in feb-mar, adding fallback.
             if not hasattr(self,"current_prompts"):
                 self.current_prompts = kwargs["prompts"].copy()
