@@ -4,6 +4,8 @@ from pprint import pprint
 import gradio as gr
 import numpy as np
 from PIL import Image
+import base64
+from io import BytesIO
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared, extra_networks
@@ -325,8 +327,25 @@ class Script(modules.scripts.Script):
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if type(polymask) == str:
             try:
-                polymask,_,_ = draw_image(np.array(Image.open(polymask)))
-            except:
+                # If the length of the polymask is greater than 100, we assume it to be a base64 encoded string
+                # representing the image. This number is chosen because it is much larger than the typical 
+                # filename length and much smaller than the typical size of a base64 string representing an image.
+                # If the length of the polymask is less than or equal to 100, we treat it as a filename and attempt 
+                # to open the corresponding image from the file system.
+                if len(polymask) > 100:
+                    img_data = base64.b64decode(polymask)
+                    polymask_image = Image.open(BytesIO(img_data))
+                else:
+                    current_script_path = os.path.realpath(__file__)
+                    current_script_dir = os.path.dirname(current_script_path)
+                    parent_dir = os.path.dirname(current_script_dir)
+                    polymask_image_path = os.path.join(parent_dir, "regional_masks", polymask)
+                    polymask_image = Image.open(polymask_image_path)
+                if polymask_image.mode == 'RGBA':
+                    polymask_image = polymask_image.convert('RGB')
+                np_polymask_image = np.array(polymask_image)
+                polymask, _, _ = draw_image(np_polymask_image)
+            except Exception as e:
                 pass
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
