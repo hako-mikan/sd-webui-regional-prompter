@@ -80,7 +80,9 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         self.step = params.sampling_step
         self.pfirst = True
 
-        if len(att.pmaskshw) > 1 if self.isxl else 3:
+        lim = 1 if self.isxl else 3
+
+        if len(att.pmaskshw) > lim:
             if "La" in self.calc:
                 self.filters = []
                 for b in range(self.batch_size):
