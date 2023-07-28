@@ -1,15 +1,17 @@
 from difflib import restore
 import random
+import copy
 from pprint import pprint
 from typing import Union
 import torch
-from modules import devices, extra_networks, shared
+from modules import devices, shared, extra_networks
 from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
 from scripts.regions import floatdef
 
 islora = True
+in_hr = False
 layer_name = "lora_layer_name"
 orig_Linear_forward = None
 orig_lora_functional = False
@@ -26,12 +28,17 @@ def setloradevice(self):
     if self.debug : print("change LoRA device for new lora")
     
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
+        oldnew=[]
         for l in lora.loaded_loras:
             LORAID = LORAID + 1
             if LORAID > MAXID:
                 LORAID = MINID
             # l.name = l.name + "added_by_regional_prompter" + str(random.random())
-            l.name = l.name + "added_by_regional_prompter" + str(LORAID)
+            old = l.name
+            new = l.name + "_in_RP_" + str(LORAID)
+            l.name = new
+            oldnew.append(old,new)
+
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
 
@@ -42,7 +49,6 @@ def setuploras(self):
     islora = self.isbefore15
     layer_name = self.layer_name
     orig_lora_functional = shared.opts.lora_functional
-    print(shared.opts.lora_functional)
 
     if self.isbefore15:
         shared.opts.lora_functional = True
@@ -126,6 +132,8 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                 self.rebacked = True
 
     if "La" in self.calc:
+        global in_hr
+        in_hr = self.in_hr
         xt = params.x.clone()
         ict = params.image_cond.clone()
         st =  params.sigma.clone()
@@ -189,7 +197,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
 # Remove tags from called lora names.
 flokey = lambda x: (x.split("added_by_regional_prompter")[0]
-                    .split("added_by_lora_block_weight")[0])
+                    .split("added_by_lora_block_weight")[0].split("_in_LBW")[0].split("_in_RP")[0])
 
 def lora_namer(self, p, lnter, lnur):
     ldict_u = {}
@@ -203,6 +211,7 @@ def lora_namer(self, p, lnter, lnur):
     subprompts = self.current_prompts[0].split("AND")
     ldictlist_u =[ldict_u.copy() for i in range(len(subprompts)+1)]
     ldictlist_te =[ldict_te.copy() for i in range(len(subprompts)+1)]
+
     for i, prompt in enumerate(subprompts):
         _, extranets = extra_networks.parse_prompts([prompt])
         calledloras = extranets["lora"]
@@ -212,7 +221,7 @@ def lora_namer(self, p, lnter, lnur):
 
         for called in calledloras:
             names = names + called.items[0]
-            tdict[called.items[0]] = called.items[1]
+            tdict[called.items[0]] = syntaxdealer(called.items,"unet=",1)
 
         for key in ldictlist_u[i].keys():
             shin_key = flokey(key)
@@ -236,6 +245,13 @@ def lora_namer(self, p, lnter, lnur):
     if self.debug:
         print("LoRA regioner : TE list",regioner.te_llist)
         print("LoRA regioner : U list",regioner.u_llist)
+
+def syntaxdealer(items,type,index): #type "unet=", "x=", "lwbe=" 
+    for item in items:
+        if type in item:
+            if "@" in item:return 1 #for loractl
+            return item.replace(type,"")
+    return items[index] if "@" not in items[index] else 1
 
 def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
     if indmask:
@@ -305,6 +321,17 @@ class LoRARegioner:
         self.te_llist = [{}]
         self.u_llist = [{}]
         self.mlist = {}
+        self.ctl = False
+
+        try:
+            import lora_ctl_network as ctl
+            self.ctlweight = copy.deepcopy(ctl.lora_weights)
+            for set in self.ctlweight.values():
+                for weight in set.values():
+                    if type(weight) == list:
+                        self.ctl = True        
+        except:
+            pass
 
     def expand_del(self, val, lorder):
         """Broadcast single / comma separated val to lora list. 
@@ -354,7 +381,20 @@ class LoRARegioner:
         for i in range(len(lora.loaded_loras)):
             lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
             lora.loaded_loras[i].unet_multiplier = self.mlist[lora.loaded_loras[i].name]
-    
+            if labug :print(lora.loaded_loras[i].name)
+            if self.ctl:
+                import lora_ctl_network as ctl
+                key = "hrunet" if in_hr else "unet"
+                if self.mlist[lora.loaded_loras[i].name] == 0:
+                    ctl.lora_weights[lora.loaded_loras[i].name][key] = [[0],[0]]
+                    if labug :print(ctl.lora_weights[lora.loaded_loras[i].name])
+                else:
+                    if key in self.ctlweight[lora.loaded_loras[i].name].keys():
+                        ctl.lora_weights[lora.loaded_loras[i].name][key] = self.ctlweight[lora.loaded_loras[i].name][key]
+                    else:
+                        ctl.lora_weights[lora.loaded_loras[i].name][key] = self.ctlweight[lora.loaded_loras[i].name]["unet"]
+                    if labug :print(ctl.lora_weights[lora.loaded_loras[i].name])
+
     def reset(self):
         self.te_count = 0
         self.u_count = 0

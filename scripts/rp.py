@@ -4,8 +4,6 @@ from pprint import pprint
 import gradio as gr
 import numpy as np
 from PIL import Image
-import base64
-from io import BytesIO
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared, extra_networks
@@ -327,25 +325,8 @@ class Script(modules.scripts.Script):
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
         if type(polymask) == str:
             try:
-                # If the length of the polymask is greater than 100, we assume it to be a base64 encoded string
-                # representing the image. This number is chosen because it is much larger than the typical 
-                # filename length and much smaller than the typical size of a base64 string representing an image.
-                # If the length of the polymask is less than or equal to 100, we treat it as a filename and attempt 
-                # to open the corresponding image from the file system.
-                if len(polymask) > 100:
-                    img_data = base64.b64decode(polymask)
-                    polymask_image = Image.open(BytesIO(img_data))
-                else:
-                    current_script_path = os.path.realpath(__file__)
-                    current_script_dir = os.path.dirname(current_script_path)
-                    parent_dir = os.path.dirname(current_script_dir)
-                    polymask_image_path = os.path.join(parent_dir, "regional_masks", polymask)
-                    polymask_image = Image.open(polymask_image_path)
-                if polymask_image.mode == 'RGBA':
-                    polymask_image = polymask_image.convert('RGB')
-                np_polymask_image = np.array(polymask_image)
-                polymask, _, _ = draw_image(np_polymask_image)
-            except Exception as e:
+                polymask,_,_ = draw_image(np.array(Image.open(polymask)))
+            except:
                 pass
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
@@ -434,7 +415,7 @@ class Script(modules.scripts.Script):
 
         neighbor(self,p)                                                    #detect other extention
         keyreplacer(p)                                                      #replace all keys to BREAK
-        commondealer(p, usecom, usencom)                     #add commom prompt to all region
+        commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
         anddealer(self, p , calcmode)                                 #replace BREAK to AND in Latent mode
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
         thresholddealer(self, p, threshold)                          #set threshold
@@ -448,6 +429,9 @@ class Script(modules.scripts.Script):
     def before_process_batch(self, p, *args, **kwargs):
         self.current_prompts = kwargs["prompts"].copy()
         p.disable_extra_networks = False
+
+    def before_hr(self, p, *args):
+        self.in_hr = True
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
