@@ -91,7 +91,7 @@ def hook_forward(self, module):
             print("module : ", getattr(module, self.layer_name,None))
 
         if self.xsize == 0: self.xsize = x.shape[1]
-        if "input" in getattr(module, self.layer_name,None):
+        if "input" in getattr(module, self.layer_name,""):
             if x.shape[1] > self.xsize:
                 self.in_hr = True
 
