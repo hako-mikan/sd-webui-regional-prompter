@@ -13,9 +13,12 @@ from modules.script_callbacks import (on_ui_settings,
 import scripts.attention
 import scripts.latent
 import scripts.regions
-reload(scripts.regions) # update without restarting web-ui.bat
-reload(scripts.attention)
-reload(scripts.latent)
+try:
+    reload(scripts.regions) # update without restarting web-ui.bat
+    reload(scripts.attention)
+    reload(scripts.latent)
+except:
+    pass
 import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
