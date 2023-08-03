@@ -325,6 +325,10 @@ fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 
 def matrixdealer(self, p, aratios, bratios, mode):
+    print(aratios, bratios, mode)
+    if "Ran" in mode:
+        randdealer(self,p,aratios,bratios)
+        return 
     # The addrow/addcol syntax is better, cannot detect regular breaks without it.
     # In any case, the preferred method will anchor the L2 structure. 
     # No prompt formatting is performed. Used only for region calculations
@@ -773,3 +777,45 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask):
     breaks = prompt.count(KEYBRK)
     self.bratios = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0),
                             basestruct = [[0] * (breaks + 1)], indflip = False)
+
+def randdealer(self,p,aratios,bratios):
+    # h*w の大きさのテンソルを作成
+    tensor = torch.zeros((p.height//8, p.width//8)).to("cuda")
+    x,y = int(aratios.split(",")[0]),int(aratios.split(",")[1])
+
+
+
+    # 領域ごとのサイズを計算
+    dh, dw = p.height//8 // x, p.width//8 // y
+    lbreaks = p.prompt.count(KEYBRK) + 1
+
+    bratios = bratios.split(",") if self.usebase else [0]
+    bratios = [float(b) for b in bratios]
+    while len(bratios) <= lbreaks:
+        bratios.append(bratios[0])
+
+    # 領域ごとに0から3までのランダムな値を設定
+    for i in range(x):
+        for j in range(y):
+            random_value = torch.randint(0, lbreaks, (1,))
+            tensor[i*dh:(i+1)*dh, j*dw:(j+1)*dw] = random_value
+    tensors = []
+
+    ranbase = torch.ones_like(tensor)
+
+    for i in range(lbreaks):
+        add = torch.where(tensor==i, 1*(1-bratios[i]),0)
+        tensors.append(add)
+        ranbase = ranbase - add
+
+    drows = []
+    dcells = []
+    for c in range(lbreaks):
+        d = RegionCell(0,0 , 0, 0)
+        dcells.append(d)
+    drow = RegionRow(0, 1, dcells)
+    drows.append(drow)
+
+    self.aratios = drows
+    self.ransors = tensors
+    self.ranbase = ranbase

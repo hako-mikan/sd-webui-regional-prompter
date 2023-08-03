@@ -143,7 +143,7 @@ def hook_forward(self, module):
                     return out
                 # if self.usebase:
                 outb = out.clone()
-                outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) 
+                outb = outb.reshape(outb.size()[0], dsh, dsw, outb.size()[2]) if "Ran" not in self.mode else outb
 
             sumout = 0
             db(self,f"tokens : {tll},pn : {pn}")
@@ -165,11 +165,14 @@ def hook_forward(self, module):
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
                     out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, isxl = self.isxl)
-                    db(self," dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
+                    db(self,f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
                     if len(self.nt) == 1 and not pn:
                         db(self,"return out for NP")
                         return out
                     # Actual matrix split by region.
+                    if "Ran" in self.mode:
+                        v_states.append(out)
+                        continue
                     
                     out = out.reshape(out.size()[0], dsh, dsw, out.size()[2]) # convert to main shape.
                     # if indlast:
@@ -210,6 +213,15 @@ def hook_forward(self, module):
                     ox = torch.cat(v_states,dim = 2) # First concat the cells to rows.
                 elif "Vertical" in self.mode:
                     ox = torch.cat(v_states,dim = 1) # Cols first mode, concat to cols.
+                elif "Ran" in self.mode:
+                    if self.usebase:
+                        ox = outb * makerrandman(self.ranbase,dsh,dsw).view(-1, 1)
+                    ox = torch.zeros_like(v_states[0])
+                    for state, filter in zip(v_states, self.ransors):
+                        filter = makerrandman(filter,dsh,dsw)
+                        ox = ox + state * filter.view(-1, 1)
+                    return ox
+
                 h_states.append(ox)
             if "Horizontal" in self.mode:
                 ox = torch.cat(h_states,dim = 1) # Second, concat rows to layer.
@@ -508,3 +520,14 @@ def makepmask(mask, h, w, th, step, bratio = 1): # make masks from attention cac
     mask = mask.reshape(h*w)
     mask = torch.where(mask > 0.1 ,1,0)
     return img,mask * bratio , lmask * bratio
+
+def makerrandman(mask, h, w, latent = False): # make masks from attention cache return [for preview, for attention, for Latent]
+    mask = mask.float()
+    mask = mask.view(1,mask.shape[0],mask.shape[1]) 
+    img = torchvision.transforms.functional.to_pil_image(mask)
+    img = img.resize((w,h))
+    mask = F.resize(mask,(h,w),interpolation=F.InterpolationMode.NEAREST)
+    if latent: return mask
+    mask = mask.reshape(h*w)
+    mask = torch.round(mask).long()
+    return mask

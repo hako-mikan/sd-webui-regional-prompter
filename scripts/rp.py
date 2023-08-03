@@ -117,7 +117,7 @@ def ui_tab(mode, submode):
             
 # modes, submodes. Order must be maintained so dict is inadequate. Must have submode for component consistency.
 RPMODES = [
-("Matrix", ("Horizontal","Vertical")),
+("Matrix", ("Horizontal","Vertical","Random")),
 ("Mask", ("Mask",)),
 ("Prompt", ("Prompt", "Prompt-Ex")),
 ]
@@ -385,7 +385,7 @@ class Script(modules.scripts.Script):
     
         loraverchekcer(self)                                                  #check web-ui version
         andtobreak(p, nchangeand)                                          #Change AND to BREAK
-        if "Ver" in self.mode or "Hor" in self.mode:
+        if any(x in self.mode for x in ["Ver","Hor"]):
             keyconverter(aratios, self.mode, usecom, usebase, p) #convert BREAKs to ADDROMM/ADDCOL/ADDROW
         bckeydealer(self, p)                                                      #detect COMM/BASE keys
         keycounter(self, p)                                                       #count keys and set to self.divide
@@ -396,7 +396,7 @@ class Script(modules.scripts.Script):
                 keyreplacer(p) #change all keys to BREAK
                 inpaintmaskdealer(self, p, bratios, usebase, polymask)
 
-            elif "Ver" in self.mode or "Hor" in self.mode:
+            elif any(x in self.mode for x in ["Ver","Hor","Ran"]):
                 matrixdealer(self, p, aratios, bratios, self.mode)
     
             ##### calcmode 

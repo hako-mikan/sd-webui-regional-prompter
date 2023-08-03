@@ -9,6 +9,7 @@ from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
 from scripts.regions import floatdef
+from scripts.attention import makerrandman
 
 islora = True
 in_hr = False
@@ -28,16 +29,11 @@ def setloradevice(self):
     if self.debug : print("change LoRA device for new lora")
     
     if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
-        oldnew=[]
         for l in lora.loaded_loras:
             LORAID = LORAID + 1
             if LORAID > MAXID:
                 LORAID = MINID
-            # l.name = l.name + "added_by_regional_prompter" + str(random.random())
-            old = l.name
-            new = l.name + "_in_RP_" + str(LORAID)
-            l.name = new
-            oldnew.append(old,new)
+            l.name = l.name + "added_by_regional_prompter" + str(random.random())
 
             for key in l.modules.keys():
                 changethedevice(l.modules[key])
@@ -174,11 +170,17 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
             indrebuild = self.filters == [] or self.filters[0].size() != x[0].size()
 
             if indrebuild:
-                if "Mask" in self.mode:
-                    masks = (self.regmasks,self.regbase)
+                if "Ran" in self.mode:
+                    if self.filters == []:
+                        self.filters = [self.ranbase] + self.ransors if self.usebase else self.ransors
+                    elif self.filters[0][:,:].size() != x[0,0,:,:].size():
+                        self.filters = hrchange(self.ransors,x.shape[2], x.shape[3])
                 else:
-                    masks = self.aratios  #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
-                self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
+                    if "Mask" in self.mode:
+                        masks = (self.regmasks,self.regbase)
+                    else:
+                        masks = self.aratios  #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
+                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
                 self.filters = [f for f in self.filters]*batch
         else:
             if not att.maskready:
@@ -194,6 +196,12 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
 
 ######################################################
 ##### Latent Method
+
+def hrchange(filters,h, w):
+    out = []
+    for filter in filters:
+        out.append(makerrandman(filter,h,w,True))
+    return out
 
 # Remove tags from called lora names.
 flokey = lambda x: (x.split("added_by_regional_prompter")[0]
@@ -381,7 +389,7 @@ class LoRARegioner:
         for i in range(len(lora.loaded_loras)):
             lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
             lora.loaded_loras[i].unet_multiplier = self.mlist[lora.loaded_loras[i].name]
-            if labug :print(lora.loaded_loras[i].name)
+            if labug :print(lora.loaded_loras[i].name,lora.loaded_loras[i].multiplier )
             if self.ctl:
                 import lora_ctl_network as ctl
                 key = "hrunet" if in_hr else "unet"
