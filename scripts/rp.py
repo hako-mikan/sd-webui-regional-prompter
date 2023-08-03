@@ -433,8 +433,11 @@ class Script(modules.scripts.Script):
         self.current_prompts = kwargs["prompts"].copy()
         p.disable_extra_networks = False
 
-    def before_hr(self, p, *args):
+    def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask):
         self.in_hr = True
+        setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
+        lora_namer(self, p, lnter, lnur)
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
