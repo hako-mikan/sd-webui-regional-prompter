@@ -387,21 +387,30 @@ class LoRARegioner:
         self.u_count  += 1
         import lora
         for i in range(len(lora.loaded_loras)):
-            lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
-            lora.loaded_loras[i].unet_multiplier = self.mlist[lora.loaded_loras[i].name]
-            if labug :print(lora.loaded_loras[i].name,lora.loaded_loras[i].multiplier )
+            lorakey = lora.loaded_loras[i].name
+            if lorakey not in self.mlist.keys():
+                picked = False
+                for mlkey in self.mlist.keys():
+                    if lorakey in mlkey:
+                        lorakey = mlkey
+                        picked = True
+                if not picked:
+                    print("key is not found in:{self.mlist.keys()}")
+            lora.loaded_loras[i].multiplier = self.mlist[lorakey]
+            lora.loaded_loras[i].unet_multiplier = self.mlist[lorakey]
+            if labug :print(lorakey,lora.loaded_loras[i].multiplier )
             if self.ctl:
                 import lora_ctl_network as ctl
                 key = "hrunet" if in_hr else "unet"
-                if self.mlist[lora.loaded_loras[i].name] == 0:
-                    ctl.lora_weights[lora.loaded_loras[i].name][key] = [[0],[0]]
-                    if labug :print(ctl.lora_weights[lora.loaded_loras[i].name])
+                if self.mlist[lorakey] == 0:
+                    ctl.lora_weights[lorakey][key] = [[0],[0]]
+                    if labug :print(ctl.lora_weights[lorakey])
                 else:
-                    if key in self.ctlweight[lora.loaded_loras[i].name].keys():
-                        ctl.lora_weights[lora.loaded_loras[i].name][key] = self.ctlweight[lora.loaded_loras[i].name][key]
+                    if key in self.ctlweight[lorakey].keys():
+                        ctl.lora_weights[lorakey][key] = self.ctlweight[lorakey][key]
                     else:
-                        ctl.lora_weights[lora.loaded_loras[i].name][key] = self.ctlweight[lora.loaded_loras[i].name]["unet"]
-                    if labug :print(ctl.lora_weights[lora.loaded_loras[i].name])
+                        ctl.lora_weights[lorakey][key] = self.ctlweight[lorakey]["unet"]
+                    if labug :print(ctl.lora_weights[lorakey])
 
     def reset(self):
         self.te_count = 0
