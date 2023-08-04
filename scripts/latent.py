@@ -395,7 +395,7 @@ class LoRARegioner:
                         lorakey = mlkey
                         picked = True
                 if not picked:
-                    print("key is not found in:{self.mlist.keys()}")
+                    print(f"key is not found in:{self.mlist.keys()}")
             lora.loaded_loras[i].multiplier = self.mlist[lorakey]
             lora.loaded_loras[i].unet_multiplier = self.mlist[lorakey]
             if labug :print(lorakey,lora.loaded_loras[i].multiplier )
