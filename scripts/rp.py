@@ -1,508 +1,1004 @@
-from difflib import restore
-import random
-import copy
+import os.path
+from importlib import reload
 from pprint import pprint
-from typing import Union
-import torch
-from modules import devices, shared, extra_networks
-from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
-from torchvision.transforms import InterpolationMode, Resize  # Mask.
-import scripts.attention as att
-from scripts.regions import floatdef
-from scripts.attention import makerrandman
+import gradio as gr
+import numpy as np
+from PIL import Image
+import modules.ui
+import modules # SBM Apparently, basedir only works when accessed directly.
+from modules import paths, scripts, shared, extra_networks
+from modules.processing import Processed
+from modules.script_callbacks import (on_ui_settings,
+                                      CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
+import scripts.attention
+import scripts.latent
+import scripts.regions
+try:
+    reload(scripts.regions) # update without restarting web-ui.bat
+    reload(scripts.attention)
+    reload(scripts.latent)
+except:
+    pass
+import json  # Presets.
+from json.decoder import JSONDecodeError
+from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
+from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer,
+                            restoremodel, setloradevice, setuploras, unloadlorafowards)
+from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
+                             create_canvas, draw_region, #detect_mask, detect_polygons,  
+                             draw_image, save_mask, load_mask,
+                             floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
-islora = True
-in_hr = False
-layer_name = "lora_layer_name"
-orig_Linear_forward = None
-orig_lora_functional = False
-lactive = False
-labug =False
-MINID = 1000
-MAXID = 10000
-LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
+FLJSON = "regional_prompter_presets.json"
+# Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
+PTPRESET = modules.scripts.basedir()
+PTPRESETALT = os.path.join(paths.script_path, "scripts")
 
-def setloradevice(self):
-    global LORAID
-    regioner.__init__()
-    import lora
-    if self.debug : print("change LoRA device for new lora")
+def lange(l):
+    return range(len(l))
+
+orig_batch_cond_uncond = shared.batch_cond_uncond
+
+PRESETSDEF =[
+    ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
+    ["Horizontal-3", "Horizontal",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
+    ["Horizontal-7", "Horizontal",'1,1,1,1,1,1,1',"0.2",True,False,False,"Attention",False,"0","0"],
+    ["Twod-2-1", "Horizontal",'1,2,3;1,1',"0.2",False,False,False,"Attention",False,"0","0"],
+]
+
+ATTNSCALE = 8 # Initial image compression in attention layers.
+
+fhurl = lambda url, label: r"""<a href="{}">{}</a>""".format(url, label)
+GUIDEURL = r"https://github.com/hako-mikan/sd-webui-regional-prompter"
+MATRIXURL = GUIDEURL + r"#2d-region-assignment"
+MASKURL = GUIDEURL + r"#mask-regions-aka-inpaint-experimental-function"
+PROMPTURL = GUIDEURL + r"/blob/main/prompt_en.md"
+PROMPTURL2 = GUIDEURL + r"/blob/main/prompt_ja.md"
+
+def ui_tab(mode, submode):
+    """Structures components for mode tab.
     
-    try:
-        import networks
-        isnet = True
-    except:
-        isnet = False
-    if not isnet:
-        if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
-            for l in lora.loaded_loras:
-                LORAID = LORAID + 1
-                if LORAID > MAXID:
-                    LORAID = MINID
-                l.name = l.name + "added_by_regional_prompter" + str(random.random())
-
-                for key in l.modules.keys():
-                    changethedevice(l.modules[key])
-
-def setuploras(self):
-    global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
-    lactive = True
-    labug = self.debug
-    islora = self.isbefore15
-    layer_name = self.layer_name
-    orig_lora_functional = shared.opts.lora_functional
-
-    if self.isbefore15:
-        shared.opts.lora_functional = True
-    orig_Linear_forward = torch.nn.Linear.forward
-    torch.nn.Linear.forward = h_Linear_forward
-
-def cloneparams(orig,target):
-    target.x = orig.x.clone()
-    target.image_cond  = orig.image_cond.clone()
-    target.sigma  = orig.sigma.clone()
-
-###################################################
-###### Latent Method denoise call back
-# Using the AND syntax with shared.batch_cond_uncond = False
-# the U-NET is calculated (the number of prompts divided by AND) + 1 times.
-# This means that the calculation is performed for the area + 1 times.
-# This mechanism is used to apply LoRA by region by changing the LoRA application rate for each U-NET calculation.
-# The problem here is that in the web-ui system, if more than two batch sizes are set, 
-# a problem will occur if the number of areas and the batch size are not the same.
-# If the batch is 1 for 3 areas, the calculation is performed 4 times: Area1, Area2, Area3, and Negative. 
-# However, if the batch is 2, 
-# [Batch1-Area1, Batch1-Area2]
-# [Batch1-Area3, Batch2-Area1]
-# [Batch2-Area2, Batch2-Area3]
-# [Batch1-Negative, Batch2-Negative]
-# and the areas of simultaneous computation will be different. 
-# Therefore, it is necessary to change the order in advance.
-# [Batch1-Area1, Batch1-Area2] -> [Batch1-Area1, Batch2-Area1] 
-# [Batch1-Area3, Batch2-Area1] -> [Batch1-Area2, Batch2-Area2] 
-# [Batch2-Area2, Batch2-Area3] -> [Batch1-Area3, Batch2-Area3] 
-
-def denoiser_callback_s(self, params: CFGDenoiserParams):
-    if "Pro" in self.mode:  # in Prompt mode, make masks from sum of attension maps
-        if self.x == None : cloneparams(params,self) # return to step 0 if mask is ready
-        self.step = params.sampling_step
-        self.pfirst = True
-
-        lim = 1 if self.isxl else 3
-
-        if len(att.pmaskshw) > lim:
-            if "La" in self.calc:
-                self.filters = []
-                for b in range(self.batch_size):
-
-                    allmask = []
-                    basemask = None
-                    for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                        key = f"{t}-{b}"
-                        _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
-                        mask = mask.repeat(params.x.shape[1],1,1)
-                        basemask = 1 - mask if basemask is None else basemask - mask
-                        if self.ex:
-                            for l in range(len(allmask)):
-                                mt = allmask[l] - mask
-                                allmask[l] = torch.where(mt > 0, 1,0)
-                        allmask.append(mask)
-                    if not self.ex:
-                        sum = torch.stack(allmask, dim=0).sum(dim=0)
-                        sum = torch.where(sum == 0, 1 , sum)
-                        allmask = [mask  / sum for mask in allmask]
-                    basemask = torch.where(basemask > 0, 1, 0)
-                    allmask.insert(0,basemask)
-                    self.filters.extend(allmask)
-                att.maskready = True
-            else:    
-                for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                    allmask = []
-                    for hw in att.pmaskshw:
-                        masks = None
-                        for b in range(self.batch_size):
-                            key = f"{t}-{b}"
-                            _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
-                            mask = mask.unsqueeze(0).unsqueeze(-1)
-                            masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
-                        allmask.append(mask)     
-                    att.pmasksf[key] = allmask
-                    att.maskready = True
-
-            if not self.rebacked: 
-                cloneparams(self,params)
-                self.rebacked = True
-
-    if "La" in self.calc:
-        global in_hr
-        in_hr = self.in_hr
-        xt = params.x.clone()
-        ict = params.image_cond.clone()
-        st =  params.sigma.clone()
-        batch = self.batch_size
-        areas = xt.shape[0] // batch -1
-        # SBM Stale version workaround.
-        if hasattr(params,"text_cond"):
-            if "DictWithShape" in params.text_cond.__class__.__name__:
-                ct = {}
-                for key in params.text_cond.keys():
-                    ct[key] = params.text_cond[key].clone()
-            else:
-                ct =  params.text_cond.clone()
-
-        for a in range(areas):
-            for b in range(batch):
-                params.x[b+a*batch] = xt[a + b * areas]
-                params.image_cond[b+a*batch] = ict[a + b * areas]
-                params.sigma[b+a*batch] = st[a + b * areas]
-                # SBM Stale version workaround.
-                if hasattr(params,"text_cond"):
-                    if "DictWithShape" in params.text_cond.__class__.__name__:
-                        for key in params.text_cond.keys():
-                            params.text_cond[key][b+a*batch] = ct[key][a + b * areas]
-                    else:
-                        params.text_cond[b+a*batch] = ct[a + b * areas]
-
-def denoised_callback_s(self, params: CFGDenoisedParams):
-    if "La" in self.calc:
-        x = params.x
-        xt = params.x.clone()
-        batch = self.batch_size
-        areas = xt.shape[0] // batch -1
-
-        # x.shape = [batch_size, C, H // 8, W // 8]
-
-        if not "Pro" in self.mode:
-            indrebuild = self.filters == [] or self.filters[0].size() != x[0].size()
-
-            if indrebuild:
-                if "Ran" in self.mode:
-                    if self.filters == []:
-                        self.filters = [self.ranbase] + self.ransors if self.usebase else self.ransors
-                    elif self.filters[0][:,:].size() != x[0,0,:,:].size():
-                        self.filters = hrchange(self.ransors,x.shape[2], x.shape[3])
-                else:
-                    if "Mask" in self.mode:
-                        masks = (self.regmasks,self.regbase)
-                    else:
-                        masks = self.aratios  #makefilters(c,h,w,masks,mode,usebase,bratios,indmask = None)
-                    self.filters = makefilters(x.shape[1], x.shape[2], x.shape[3],masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
-                self.filters = [f for f in self.filters]*batch
-        else:
-            if not att.maskready:
-                self.filters = [1,*[0 for a in range(areas - 1)]] * batch
-
-        if self.debug : print("filterlength : ",len(self.filters))
-
-        for b in range(batch):
-            for a in range(areas) :
-                fil = self.filters[a + b*areas]
-                if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
-                x[a + b * areas, :, :, :] =  xt[b + a*batch, :, :, :] * fil + x[x.size()[0]+(b-batch), :, :, :] * (1 - fil)
-
-######################################################
-##### Latent Method
-
-def hrchange(filters,h, w):
-    out = []
-    for filter in filters:
-        out.append(makerrandman(filter,h,w,True))
-    return out
-
-# Remove tags from called lora names.
-flokey = lambda x: (x.split("added_by_regional_prompter")[0]
-                    .split("added_by_lora_block_weight")[0].split("_in_LBW")[0].split("_in_RP")[0])
-
-def lora_namer(self, p, lnter, lnur):
-    ldict_u = {}
-    ldict_te = {}
-    lorder = [] # Loras call order for matching with u/te lists.
-    import lora as loraclass
-    for lora in loraclass.loaded_loras:
-        ldict_u[lora.name] =lora.multiplier if self.isbefore15 else lora.unet_multiplier
-        ldict_te[lora.name] =lora.multiplier  if self.isbefore15 else lora.te_multiplier
-    
-    subprompts = self.current_prompts[0].split("AND")
-    ldictlist_u =[ldict_u.copy() for i in range(len(subprompts)+1)]
-    ldictlist_te =[ldict_te.copy() for i in range(len(subprompts)+1)]
-
-    for i, prompt in enumerate(subprompts):
-        _, extranets = extra_networks.parse_prompts([prompt])
-        calledloras = extranets["lora"]
-
-        names = ""
-        tdict = {}
-
-        for called in calledloras:
-            names = names + called.items[0]
-            tdict[called.items[0]] = syntaxdealer(called.items,"unet=",1)
-
-        for key in ldictlist_u[i].keys():
-            shin_key = flokey(key)
-            if shin_key in names:
-                ldictlist_u[i+1][key] = float(tdict[shin_key])
-                ldictlist_te[i+1][key] = float(tdict[shin_key])
-                if key not in lorder:
-                    lorder.append(key)
-            else:
-                ldictlist_u[i+1][key] = 0
-                ldictlist_te[i+1][key] = 0
-                
-    if self.debug: print("Regioner lorder: ",lorder)
-    global regioner
-    regioner.__init__()
-    u_llist = [d.copy() for d in ldictlist_u[1:]]
-    u_llist.append(ldictlist_u[0].copy())
-    regioner.te_llist = ldictlist_te
-    regioner.u_llist = u_llist
-    regioner.ndeleter(lnter, lnur, lorder)
-    if self.debug:
-        print("LoRA regioner : TE list",regioner.te_llist)
-        print("LoRA regioner : U list",regioner.u_llist)
-
-def syntaxdealer(items,type,index): #type "unet=", "x=", "lwbe=" 
-    for item in items:
-        if type in item:
-            if "@" in item:return 1 #for loractl
-            return item.replace(type,"")
-    return items[index] if "@" not in items[index] else 1
-
-def makefilters(c,h,w,masks,mode,usebase,bratios,indmask):
-    if indmask:
-        (regmasks, regbase) = masks
+    Semi harcoded but it's clearer this way.
+    """
+    vret = None
+    if mode == "Matrix":
+        with gr.Row():
+            mguide = gr.HTML(value = fhurl(MATRIXURL, "Matrix mode guide")) 
+        with gr.Row():
+            mmode = gr.Radio(label="Split mode", choices=submode, value="Horizontal", type="value", interactive=True)
+            ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
+        with gr.Row():
+            with gr.Column():
+                maketemp = gr.Button(value="visualize and make template")
+                template = gr.Textbox(label="template",interactive=True,visible=True)
+            with gr.Column():
+                areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
+                    
+        # Need to add maketemp function based on base / common checks.
+        vret = [mmode, ratios, maketemp, template, areasimg]
+    elif mode == "Mask":
+        with gr.Row():
+            xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
+        with gr.Row(): # Creep: Placeholder, should probably make this invisible.
+            xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True)
+        with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
+            polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
+                                source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
+        with gr.Row():
+            with gr.Column():
+                num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
+                canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8)
+                canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8)
+                btn = gr.Button(value = "Draw region + show mask")
+                # btn2 = gr.Button(value = "Display mask") # Not needed.
+                cbtn = gr.Button(value="Create mask area")
+            with gr.Column():
+                showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
+                # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
+                uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
+        # btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
+        btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
+        # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
+        cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
+        uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
         
-    filters = []
-    x =  torch.zeros(c, h, w).to(devices.device)
-    if usebase:
-        x0 = torch.zeros(c, h, w).to(devices.device)
-    i=0
-    if indmask:
-        ftrans = Resize((h, w), interpolation = InterpolationMode("nearest"))
-        for rmask, bratio in zip(regmasks,bratios[0]):
-            # Resize mask to current dims.
-            # Since it's a mask, we prefer a binary value, nearest is the only option.
-            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
-            rmask2 = rmask2.reshape([1, h, w])
-            fx = x.clone()
-            if usebase:
-                fx[:,:,:] = fx + rmask2 * (1 - bratio)
-                x0[:,:,:] = x0 + rmask2 * bratio
-            else:
-                fx[:,:,:] = fx + rmask2 * 1
-            filters.append(fx)
+        vret = [xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask]
+    elif mode == "Prompt":
+        with gr.Row():
+            pguide = gr.HTML(value = fhurl(PROMPTURL, "Prompt mode guide"))
+            pguide2 = gr.HTML(value = fhurl(PROMPTURL2, "Extended prompt guide (jp)"))
+        with gr.Row():
+            pmode = gr.Radio(label="Prompt mode", choices=submode, value="Prompt", type="value", interactive=True)
+            threshold = gr.Textbox(label = "threshold", value = 0.4, interactive=True)
+        
+        vret = [pmode, threshold]
+
+    return vret
             
-        if usebase: # Add base to x0.
-            rmask = regbase
-            rmask2 = ftrans(rmask.reshape([1, *rmask.shape])) # Requires dimensions N,C,{d}.
-            rmask2 = rmask2.reshape([1, h, w])
-            x0 = x0 + rmask2
-    else:
-        for drow in masks:
-            for dcell in drow.cols:
-                fx = x.clone()
-                if "Horizontal" in mode:
-                    if usebase:
-                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1 - dcell.base
-                        x0[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = dcell.base
-                    else:
-                        fx[:,int(h*drow.st):int(h*drow.ed),int(w*dcell.st):int(w*dcell.ed)] = 1    
-                elif "Vertical" in mode: 
-                    if usebase:
-                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1 - dcell.base
-                        x0[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = dcell.base
-                    else:
-                        fx[:,int(h*dcell.st):int(h*dcell.ed),int(w*drow.st):int(w*drow.ed)] = 1  
-                filters.append(fx)
-                i +=1
-    if usebase : filters.insert(0,x0)
-    if labug : print(i,len(filters))
+# modes, submodes. Order must be maintained so dict is inadequate. Must have submode for component consistency.
+RPMODES = [
+("Matrix", ("Horizontal","Vertical","Random")),
+("Mask", ("Mask",)),
+("Prompt", ("Prompt", "Prompt-Ex")),
+]
+fgrprop = lambda x: {"label": x, "id": "t" + x, "elem_id": "RP_" + x}
 
-    return filters
-
-######################################################
-##### Latent Method LoRA changer
-
-TE_START_NAME = "transformer_text_model_encoder_layers_0_self_attn_q_proj"
-UNET_START_NAME = "diffusion_model_time_embed_0"
-
-TE_START_NAME_XL = "0_transformer_text_model_encoder_layers_0_self_attn_q_proj"
-
-class LoRARegioner:
-
-    def __init__(self):
-        self.te_count = 0
-        self.u_count = 0
-        self.te_llist = [{}]
-        self.u_llist = [{}]
-        self.mlist = {}
-        self.ctl = False
-
-        try:
-            import lora_ctl_network as ctl
-            self.ctlweight = copy.deepcopy(ctl.lora_weights)
-            for set in self.ctlweight.values():
-                for weight in set.values():
-                    if type(weight) == list:
-                        self.ctl = True        
-        except:
-            pass
-
-    def expand_del(self, val, lorder):
-        """Broadcast single / comma separated val to lora list. 
-        
-        """
-        lval = val.split(",")
-        if len(lval) > len(lorder):
-            lval = lval[:len(lorder)]
-        lval = [floatdef(v, 0) for v in lval]
-        if len(lval) < len(lorder): # Propagate difference.
-            lval.extend([lval[-1]] * (len(lorder) - len(lval)))
-        return lval
-
-    def ndeleter(self, lnter, lnur, lorder = None):
-        """Multiply global weights by 0:1 factor.
-        
-        Can be any value, negative too, but doesn't help much.
-        """
-        if lorder is None:
-            lkeys = self.te_llist[0].keys()
-        else:
-            lkeys = lorder
-        lnter = self.expand_del(lnter, lkeys)
-        for (key, val) in zip(lkeys, lnter):
-            self.te_llist[0][key] *= val
-        if lorder is None:
-            lkeys = self.u_llist[-1].keys()
-        else:
-            lkeys = lorder
-        lnur = self.expand_del(lnur, lkeys)
-        for (key, val) in zip(lkeys, lnur):
-            self.u_llist[-1][key] *= val
-
-    def te_start(self):
-        self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
-        self.te_count += 1
-        import lora
-        for i in range(len(lora.loaded_loras)):
-            lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
-            lora.loaded_loras[i].te_multiplier = self.mlist[lora.loaded_loras[i].name]
-
-    def u_start(self):
-        if labug : print("u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
-        self.mlist = self.u_llist[self.u_count % len(self.u_llist)]
-        self.u_count  += 1
-        import lora
-        for i in range(len(lora.loaded_loras)):
-            lorakey = lora.loaded_loras[i].name
-            if lorakey not in self.mlist.keys():
-                picked = False
-                for mlkey in self.mlist.keys():
-                    if lorakey in mlkey:
-                        lorakey = mlkey
-                        picked = True
-                if not picked:
-                    print(f"key is not found in:{self.mlist.keys()}")
-            lora.loaded_loras[i].multiplier = self.mlist[lorakey]
-            lora.loaded_loras[i].unet_multiplier = self.mlist[lorakey]
-            if labug :print(lorakey,lora.loaded_loras[i].multiplier )
-            if self.ctl:
-                import lora_ctl_network as ctl
-                key = "hrunet" if in_hr else "unet"
-                if self.mlist[lorakey] == 0:
-                    ctl.lora_weights[lorakey][key] = [[0],[0]]
-                    if labug :print(ctl.lora_weights[lorakey])
-                else:
-                    if key in self.ctlweight[lorakey].keys():
-                        ctl.lora_weights[lorakey][key] = self.ctlweight[lorakey][key]
-                    else:
-                        ctl.lora_weights[lorakey][key] = self.ctlweight[lorakey]["unet"]
-                    if labug :print(ctl.lora_weights[lorakey])
-
-    def reset(self):
-        self.te_count = 0
-        self.u_count = 0
+def mode2tabs(mode):
+    """Converts mode (in preset) to gradio tab + submodes.
     
-regioner = LoRARegioner()
+    I dunno if it's possible to nest components or make them optional (probably not),
+    so this is the best we can do.
+    """
+    vret = ["Nope"] + [None] * len(RPMODES)
+    for (i,(k,v)) in enumerate(RPMODES):
+        if mode in v:
+            vret[0] = k
+            vret[i + 1] = mode
+    return vret
+    
+def tabs2mode(tab, *submode):
+    """Converts ui tab + submode list to a single value mode.
+    
+    Picks current submode based on tab, nothing clever. Submodes must be unique.
+    """
+    for (i,(k,_)) in enumerate(RPMODES):
+        if tab == k:
+            return submode[i]
+    return "Nope"
+    
+def expand_components(l):
+    """Converts json preset to component format.
+    
+    Assumes mode is the first value in list.
+    """
+    l = list(l) # Tuples cannot be altered.
+    tabs = mode2tabs(l[0])
+    return tabs + l[1:]
+
+def compress_components(l):
+    """Converts component values to preset format.
+    
+    Assumes tab + submodes are the first values in list.
+    """
+    l = list(l)
+    mode = tabs2mode(*l[:len(RPMODES) + 1])
+    return [mode] + l[len(RPMODES) + 1:]
+    
+class Script(modules.scripts.Script):
+    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False):
+        self.active = active
+        self.mode = mode
+        self.calc = calc
+        self.h = h
+        self.w = w
+        self.debug = debug
+        self.usebase = usebase
+        self.usecom = usecom
+        self.usencom = usencom
+        self.batch_size = batch
+        self.isxl = isxl
+
+        self.aratios = []
+        self.bratios = []
+        self.divide = 0
+        self.count = 0
+        self.eq = True
+        self.pn = True
+        self.hr = False
+        self.hr_scale = 0
+        self.hr_w = 0
+        self.hr_h = 0
+        self.in_hr = False
+        self.xsize = 0
+        self.imgcount = 0
+        # for latent mode
+        self.filters = []
+        self.lora_applied = False
+        # for inpaintmask
+        self.regmasks = None
+        self.regbase = None
+        #for prompt region
+        self.pe = []
+        self.step = 0
+
+    def title(self):
+        return "Regional Prompter"
+
+    def show(self, is_img2img):
+        return modules.scripts.AlwaysVisible
+
+    infotext_fields = None
+    paste_field_names = []
+
+    def ui(self, is_img2img):
+        filepath = os.path.join(PTPRESET, FLJSON)
+
+        presets = []
+
+        presets = loadpresets(filepath)
+        presets = LPRESET.update(presets)
+
+        with gr.Accordion("Regional Prompter", open=False, elem_id="RP_main"):
+            with gr.Row():
+                active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active")
+                urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
+            with gr.Row():
+                # mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
+                calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
+            with gr.Row(visible=True):
+                # ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
+                baseratios = gr.Textbox(label="Base Ratio", lines=1,value="0.2",interactive=True,  elem_id="RP_base_ratio", visible=True)
+            with gr.Row():
+                usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
+                usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
+                usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
+            
+            # Tabbed modes.
+            with gr.Tabs(elem_id="RP_mode") as tabs:
+                rp_selected_tab = gr.State("Matrix") # State component to document current tab for gen.
+                # ltabs = []
+                ltabp = []
+                for (i, (md,smd)) in enumerate(RPMODES):
+                    with gr.TabItem(**fgrprop(md)) as tab: # Tabs with a formatted id.
+                        # ltabs.append(tab)
+                        ltabp.append(ui_tab(md, smd))
+                    # Tab switch tags state component.
+                    tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
+
+            # Hardcode expansion back to components for any specific events.
+            (mmode, ratios, maketemp, template, areasimg) = ltabp[0]
+            (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
+            (pmode, threshold) = ltabp[2]
+            
+            with gr.Accordion("Presets",open = False):
+                with gr.Row():
+                    availablepresets = gr.Dropdown(label="Presets", choices=presets, type="index")
+                    applypresets = gr.Button(value="Apply Presets",variant='primary',elem_id="RP_applysetting")
+                with gr.Row():
+                    presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
+                    savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
+            with gr.Row():
+                nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
+                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
+                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
+
+            mode = gr.Textbox(value = "Matrix",visible = False)
+
+            def changetabs(mode):
+                modes = ["Matrix", "Mask", "Prompt"]
+                if mode not in modes: mode = "Maxtix"
+                return gr.Tabs.update(selected="t"+mode)
+
+            mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
+            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+        
+        self.infotext_fields = [
+                (active, "RP Active"),
+                # (mode, "RP Divide mode"),
+                (mode, "RP Divide mode"),
+                (mmode, "RP Matrix submode"),
+                (xmode, "RP Mask submode"),
+                (pmode, "RP Prompt submode"),
+                (calcmode, "RP Calc Mode"),
+                (ratios, "RP Ratios"),
+                (baseratios, "RP Base Ratios"),
+                (usebase, "RP Use Base"),
+                (usecom, "RP Use Common"),
+                (usencom, "RP Use Ncommon"),
+                (nchangeand,"RP Change AND"),
+                (lnter,"RP LoRA Neg Te Ratios"),
+                (lnur,"RP LoRA Neg U Ratios"),
+                (threshold,"RP threshold"),
+        ]
+
+        for _,name in self.infotext_fields:
+            self.paste_field_names.append(name)
+
+        def setpreset(select, *settings):
+            """Load preset from list.
+            
+            SBM: The only way I know how to get the old values in gradio,
+            is to pass them all as input.
+            Tab mode converts ui to single value.
+            """
+            # Need to swap all masked images to the source,
+            # getting "valueerror: cannot process this value as image".
+            # Gradio bug in components.postprocess, most likely.
+            settings = [s["image"] if (isinstance(s,dict) and "image" in s) else s for s in settings]
+            presets = loadpresets(filepath)
+            preset = presets[select]
+            preset = loadblob(preset)
+            preset = [fmt(preset.get(k, vdef)) for (k,fmt,vdef) in PRESET_KEYS]
+            preset = preset[1:] # Remove name.
+            preset = expand_components(preset)
+            # Change nulls to original value.
+            preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
+            # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
+            return preset
+
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase],outputs = [areasimg,template])
+        applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
+        savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
+        
+        return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+
+    def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+        if type(polymask) == str:
+            try:
+                polymask,_,_ = draw_image(np.array(Image.open(polymask)))
+            except:
+                pass
+
+        if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask])
+
+        tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
+        if not any(key in tprompt for key in ALLALLKEYS) or not active:
+            return unloader(self,p)
+
+        p.extra_generation_params.update({
+            "RP Active":active,
+            "RP Divide mode": rp_selected_tab,
+            "RP Matrix submode": mmode,
+            "RP Mask submode": xmode,
+            "RP Prompt submode": pmode,
+            "RP Calc Mode":calcmode,
+            "RP Ratios": aratios,
+            "RP Base Ratios": bratios,
+            "RP Use Base":usebase,
+            "RP Use Common":usecom,
+            "RP Use Ncommon": usencom,
+            "RP Change AND" : nchangeand,
+            "RP LoRA Neg Te Ratios": lnter,
+            "RP LoRA Neg U Ratios": lnur,
+            "RP threshold": threshold,
+        })
+
+        savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
+                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
+
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"))
+        self.all_prompts = p.all_prompts.copy()
+        self.all_negative_prompts = p.all_negative_prompts.copy()
+
+        # SBM ddim / plms detection.
+        self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
+
+        if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
+            # Testing shows a round down occurs in model.
+            print("Warning: Nonstandard height / width.")
+            self.h = self.h - self.h % ATTNSCALE
+            self.w = self.w - self.w % ATTNSCALE
+
+        if hasattr(p,"enable_hr"): # Img2img doesn't have it.
+            self.hr = p.enable_hr
+            self.hr_w = (p.hr_resize_x if p.hr_resize_x > p.width else p.width * p.hr_scale)
+            self.hr_h = (p.hr_resize_y if p.hr_resize_y > p.height else p.height * p.hr_scale)
+            if self.hr_h % ATTNSCALE != 0 or self.hr_w % ATTNSCALE != 0:
+                # Testing shows a round down occurs in model.
+                print("Warning: Nonstandard height / width for ulscaled size")
+                self.hr_h = self.hr_h - self.hr_h % ATTNSCALE
+                self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
+    
+        loraverchekcer(self)                                                  #check web-ui version
+        andtobreak(p, nchangeand)                                          #Change AND to BREAK
+        if any(x in self.mode for x in ["Ver","Hor"]):
+            keyconverter(aratios, self.mode, usecom, usebase, p) #convert BREAKs to ADDROMM/ADDCOL/ADDROW
+        bckeydealer(self, p)                                                      #detect COMM/BASE keys
+        keycounter(self, p)                                                       #count keys and set to self.divide
+            
+        if "Pro" not in self.mode: # skip region assign in prompt mode
+            ##### region mode
+            if "Mask" in self.mode:
+                keyreplacer(p) #change all keys to BREAK
+                inpaintmaskdealer(self, p, bratios, usebase, polymask)
+
+            elif any(x in self.mode for x in ["Ver","Hor","Ran"]):
+                matrixdealer(self, p, aratios, bratios, self.mode)
+    
+            ##### calcmode 
+            if "Att" in calcmode:
+                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+                shared.batch_cond_uncond = orig_batch_cond_uncond
+            else:
+                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
+                print("koko")
+                setuploras(self)
+                # SBM It is vital to use local activation because callback registration is permanent,
+                # and there are multiple script instances (txt2img / img2img). 
+
+        elif "Pro" in self.mode: #Prompt mode use both calcmode
+            self.ex = "Ex" in self.mode
+            if not usebase : bratios = "0"
+            self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+            denoiserdealer(self)
+
+        neighbor(self,p)                                                    #detect other extention
+        keyreplacer(p)                                                      #replace all keys to BREAK
+        commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
+        anddealer(self, p , calcmode)                                 #replace BREAK to AND in Latent mode
+        if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
+        thresholddealer(self, p, threshold)                          #set threshold
+        
+        bratioprompt(self, bratios)
+        hrdealer(p)
+
+        print(f"Regional Prompter Active, Pos tokens : {self.ppt}, Neg tokens : {self.pnt}")
+        if debug : debugall(self)
+
+    def before_process_batch(self, p, *args, **kwargs):
+        if self.active:
+            self.current_prompts = kwargs["prompts"].copy()
+            p.disable_extra_networks = False
+
+    def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask):
+        if self.active:
+            self.in_hr = True
+            if "La" in self.calc:
+                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
+                lora_namer(self, p, lnter, lnur)
+
+    def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+        # print(kwargs["prompts"])
+        if self.active:
+            resetpcache(p)
+            self.in_hr = False
+            self.xsize = 0
+            # SBM Before_process_batch was added in feb-mar, adding fallback.
+            if not hasattr(self,"current_prompts"):
+                self.current_prompts = kwargs["prompts"].copy()
+            p.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
+            p.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
+
+            if "Pro" in self.mode:
+                reset_pmasks(self)
+            if "La" in self.calc:
+                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
+                lora_namer(self, p, lnter, lnur)
+
+                if self.lora_applied: # SBM Don't override orig twice on batch calls.
+                    pass
+                else:
+                    restoremodel(p)
+                    denoiserdealer(self)
+                    self.lora_applied = True
+                #escape reload loras in hires-fix
+                p.disable_extra_networks = True
+
+    def postprocess(self, p, processed, *args):
+        if self.active : 
+            with open(os.path.join(paths.data_path, "params.txt"), "w", encoding="utf8") as file:
+                processedx = Processed(p, [], p.seed, "")
+                file.write(processedx.infotext(p, 0))
+        
+        if "Pro" in self.mode and not fseti("hidepmask"):
+            savepmasks(self, processed)
+
+        if self.debug : debugall(self)
+
+        unloader(self, p)
+
+    def denoiser_callback(self, params: CFGDenoiserParams):
+        denoiser_callback_s(self, params)
+
+    def denoised_callback(self, params: CFGDenoisedParams):
+        denoised_callback_s(self, params)
+
+
+def unloader(self,p):
+    if hasattr(self,"handle"):
+        print("unloaded")
+        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
+        del self.handle
+
+    self.__init__()
+    
+    shared.batch_cond_uncond = orig_batch_cond_uncond
+
+    unloadlorafowards(p)
+
+def denoiserdealer(self):
+    if self.calc =="Latent": # prompt mode use only denoiser callbacks
+        if not hasattr(self,"dd_callbacks"):
+            self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
+        shared.batch_cond_uncond = False
+
+    if not hasattr(self,"dr_callbacks"):
+        self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
+
 
 ############################################################
-##### for new lora apply method in web-ui
+##### prompts, tokens
+def commondealer(p, usecom, usencom):
+    all_prompts = []
+    all_negative_prompts = []
+    def comadder(prompt):
+        ppl = prompt.split(KEYBRK)
+        for i in range(len(ppl)):
+            if i == 0:
+                continue
+            ppl[i] = ppl[0] + ", " + ppl[i]
+        ppl = ppl[1:]
+        prompt = f"{KEYBRK} ".join(ppl)
+        return prompt
 
-def h_Linear_forward(self, input):
-    changethelora(getattr(self, layer_name, None))
-    if islora:
-        import lora
-        return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
-    else:
-        import networks
-        if shared.opts.lora_functional:
-            return networks.network_forward(self, input, torch.nn.Linear_forward_before_network)
-        networks.network_apply_weights(self)
-        return torch.nn.Linear_forward_before_network(self, input)
+    if usecom:
+        p.prompt = comadder(p.prompt)
+        for pr in p.all_prompts:
+            all_prompts.append(comadder(pr))
+        p.all_prompts = all_prompts
 
-def changethelora(name):
-    if lactive:
-        global regioner
-        if name == TE_START_NAME or name == TE_START_NAME_XL:
-            regioner.te_start()
-        elif name == UNET_START_NAME:
-            regioner.u_start()
+    if usencom:
+        p.negative_prompt = comadder(p.negative_prompt)
+        for pr in p.all_negative_prompts:
+            all_negative_prompts.append(comadder(pr))
+        p.all_negative_prompts = all_negative_prompts
 
-LORAANDSOON = {
-    "IA3Module" : "w",
-    "LoraKronModule" : "w1",
-    "LycoKronModule" : "w1",
+def hrdealer(p):
+    p.hr_prompt = p.prompt
+    p.hr_negative_prompt = p.negative_prompt
+    p.all_hr_prompts = p.all_prompts
+    p.all_hr_negative_prompts = p.all_negative_prompts
+
+def anddealer(self, p, calcmode):
+    if calcmode != "Latent" : return
+
+    p.prompt = p.prompt.replace(KEYBRK, "AND")
+    for i in lange(p.all_prompts):
+        p.all_prompts[i] = p.all_prompts[i].replace(KEYBRK, "AND")
+    p.negative_prompt = p.negative_prompt.replace(KEYBRK, "AND")
+    for i in lange(p.all_negative_prompts):
+        p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(KEYBRK, "AND")
+
+def tokendealer(self, p):
+    seps = "AND" if "La" in self.calc else KEYBRK
+    text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
+    ppl = text.split(seps)
+    npl = p.all_negative_prompts[0].split(seps)
+    targets =[p.split(",")[-1] for p in ppl[1:]]
+    pt, nt, ppt, pnt, tt = [], [], [], [], []
+
+    padd = 0
+    
+    tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
+
+    for pp in ppl:
+        tokens, tokensnum = tokenizer(pp)
+        pt.append([padd, tokensnum // TOKENS + 1 + padd])
+        ppt.append(tokensnum)
+        padd = tokensnum // TOKENS + 1 + padd
+
+    if "Pro" in self.mode:
+        for target in targets:
+            ptokens, tokensnum = tokenizer(ppl[0])
+            ttokens, _ = tokenizer(target)
+
+            i = 1
+            tlist = []
+            while ttokens[0].tokens[i] != 49407:
+                for (j, maintok) in enumerate(ptokens): # SBM Long prompt.
+                    if ttokens[0].tokens[i] in maintok.tokens:
+                        tlist.append(maintok.tokens.index(ttokens[0].tokens[i]) + 75 * j)
+                i += 1
+            if tlist != [] : tt.append(tlist)
+
+    paddp = padd
+    padd = 0
+    for np in npl:
+        _, tokensnum = tokenizer(np)
+        nt.append([padd, tokensnum // TOKENS + 1 + padd])
+        pnt.append(tokensnum)
+        padd = tokensnum // TOKENS + 1 + padd
+
+    self.eq = paddp == padd
+
+    self.pt = pt
+    self.nt = nt
+    self.pe = tt
+    self.ppt = ppt
+    self.pnt = pnt
+
+    notarget = "Pro" in self.mode and tt == []
+    if notarget:
+        print("No target word is detected in Prompt mode")
+    return notarget
+
+def thresholddealer(self, p ,threshold):
+    if "Pro" in self.mode:
+        threshold = threshold.split(",")
+        while len(self.pe) >= len(threshold) + 1:
+            threshold.append(threshold[0])
+        self.th = [floatdef(t, 0.4) for t in threshold] * self.batch_size
+        if self.debug :print ("threshold", self.th)
+
+def bratioprompt(self, bratios):
+    if not "Pro" in self.mode: return self
+    bratios = bratios.split(",")
+    bratios = [floatdef(b, 0) for b in bratios]
+    while len(self.pe) >= len(bratios) + 1:
+        bratios.append(bratios[0])
+    self.bratios = bratios
+
+def neighbor(self,p):
+    try:
+        args = p.script_args
+        multi = ["MultiDiffusion",'Mixture of Diffusers']
+        if any(x in args for x in multi):
+            for key in multi:
+                if key in args:
+                    self.nei_multi = [args[args.index(key)+5],args[args.index(key)+6]]
+    except:
+        pass
+
+#####################################################
+##### Presets - Save  and Load Settings
+
+fimgpt = lambda flnm, fext, *dirparts: os.path.join(*dirparts, flnm + fext)
+
+class PresetList():
+    """Preset list must be the same object throughout its lifetime, otherwise updates will err.
+
+    See gradio issue #4210 for details.
+    """
+    def __init__(self):
+        self.lpr = []
+    
+    def update(self, newpr):
+        """Replace all values, return the reference.
+        
+        Will convert dicts to the names only.
+        Might be more efficient to add the new names only, but meh.
+        """
+        if len(newpr) > 0 and isinstance(newpr[0],dict):
+            newpr = [pr["name"] for pr in newpr] 
+        self.lpr.clear()
+        self.lpr.extend(newpr)
+        return self.lpr
+        
+    def get(self):
+        return self.lpr
+
+class JsonMask():
+    """Mask saved as image with some editing work.
+    
+    """
+    blobdir = "regional_masks"
+    ext = ".png"
+    
+    def __init__(self, img):
+        self.img = img
+    
+    def makepath(self, name):
+        pt = fimgpt(name, self.ext, PTPRESET, self.blobdir)
+        os.makedirs(os.path.dirname(pt), exist_ok = True)
+        return pt
+    
+    def save(self, name, preset = None):
+        """Save image to subdir.
+        
+        Only saved when in mask mode - Hardcoded, don't have a better idea atm.
+        """
+        if (preset is None) or (preset[1] == "Mask"): # Check mode.  
+            save_mask(self.img, self.makepath(name))
+            return name
+        return None
+    
+    def load(self, name, preset = None):
+        """Load image from subdir (no editing, that comes later).
+        
+        Prefer to use the given key, rather than name. SBM CONT: Load / save in dict mode? Debugging needed.
+        """
+        if name is None or self.img is None:
+            return None
+        return load_mask(self.makepath(self.img))
+
+LPRESET = PresetList()
+
+fcountbrk = lambda x: x.count(KEYBRK)
+fint = lambda x: int(x)
+
+# Json formatters.
+fjstr = lambda x: x.strip()
+#fjbool = lambda x: (x.upper() == "TRUE" or x.upper() == "T")
+fjbool = lambda x: x # Json can store booleans reliably.
+fjmask = lambda x: draw_image(x, inddict = False)[0] # Ignore mask reset value. 
+
+# (json_name, value_format, default)
+# If default = none then will use current gradio value. 
+PRESET_KEYS = [
+("name",fjstr,"") , # Name is special, preset's key.
+("mode", fjstr, None) ,
+("ratios", fjstr, None) ,
+("baseratios", fjstr, None) ,
+("usebase", fjbool, None) ,
+("usecom", fjbool, False) ,
+("usencom", fjbool, False) ,
+("calcmode", fjstr, "Attention") , # Generation mode.
+("nchangeand", fjbool, False) ,
+("lnter", fjstr, "0") ,
+("lnur", fjstr, "0") ,
+("threshold", fjstr, "0") ,
+("polymask", fjmask, "") , # Mask has special corrections and logging.
+]
+# (json_name,blob_class)
+# Handles save + lazy load of blob data outside of presets.
+BLOB_KEYS = {
+"polymask": JsonMask
 }
 
-def changethedevice(module):
-    ltype = type(module).__name__
-    if ltype == "LoraUpDownModule" or ltype == "LycoUpDownModule" :
-        if hasattr(module,"up_model") :
-            module.up_model.weight = torch.nn.Parameter(module.up_model.weight.to(devices.device, dtype = torch.float))
-            module.down_model.weight = torch.nn.Parameter(module.down_model.weight.to(devices.device, dtype=torch.float))
-        else:
-            module.up.weight = torch.nn.Parameter(module.up.weight.to(devices.device, dtype = torch.float))
-            if hasattr(module.down, "weight"):
-                module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
-        
-    elif ltype == "LoraHadaModule" or ltype == "LycoHadaModule":
-        module.w1a = torch.nn.Parameter(module.w1a.to(devices.device, dtype=torch.float))
-        module.w1b = torch.nn.Parameter(module.w1b.to(devices.device, dtype=torch.float))
-        module.w2a = torch.nn.Parameter(module.w2a.to(devices.device, dtype=torch.float))
-        module.w2b = torch.nn.Parameter(module.w2b.to(devices.device, dtype=torch.float))
-        
-        if module.t1 is not None:
-            module.t1 = torch.nn.Parameter(module.t1.to(devices.device, dtype=torch.float))
-
-        if module.t2 is not None:
-            module.t2 = torch.nn.Parameter(module.t2.to(devices.device, dtype=torch.float))
-        
-    elif ltype == "FullModule":
-        module.weight = torch.nn.Parameter(module.weight.to(devices.device, dtype=torch.float))
+def saveblob(preset):
+    """Preset variables saved externally (blob).
     
-    if hasattr(module, 'bias') and module.bias != None:
-        module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
+    Returns modified list containing the refernces instead of data.
+    Currently, this includes polymask, which is saved as an image,
+    with a filename = preset.
+    A blob class should contain a save method which returns the reference. 
+    """
+    preset = list(preset) # Tuples don't have copy.
+    for (i,(vkey,vfun,vdef)) in enumerate(PRESET_KEYS):
+        if vkey in BLOB_KEYS:
+            # Func should accept raw form and convert it to a class.
+            x = BLOB_KEYS[vkey](preset[i])
+            # Class should have a save func given identifier, returning an access key.
+            x = x.save(preset[0], preset)
+            # Update the preset.
+            preset[i] = x
+    return preset
 
+def loadblob(preset):
+    """Load blob presets based on key.
+    
+    Returns modified list containing the refernces instead of 
+    Currently, this includes polymask, which is saved as an image,
+    with a filename = preset.
+    A blob class should contain a load method which retrieves the data based on reference. 
+    """
+    for (vkey,vval) in BLOB_KEYS.items():
+        # Func should accept refrence form and convert it to a class.
+        x = vval(preset.get(vkey))
+        # Class should have a load func given identifier, returning data.
+        x = x.load(preset["name"], preset)
+        # Update the preset.
+        preset[vkey] = x
+    return preset
 
-def restoremodel(p):
-    model = p.sd_model
-    for name, module in model.named_modules():
-        if hasattr(module, "lora_weights_backup"):
-            if module.lora_weights_backup is not None:
-                if isinstance(module, torch.nn.MultiheadAttention):
-                    module.in_proj_weight.copy_(module.lora_weights_backup[0])
-                    module.out_proj.weight.copy_(module.lora_weights_backup[1])
-                else:
-                    module.weight.copy_(module.lora_weights_backup)
-                module.lora_weights_backup = None
-                module.lora_current_names = None
+def savepresets(*settings):
+    # NAME must come first.
+    name = settings[0]
+    settings = [name] + compress_components(settings[1:])
+    settings = saveblob(settings)
+    
+    # path_root = modules.scripts.basedir()
+    # filepath = os.path.join(path_root, "scripts", "regional_prompter_presets.json")
+    filepath = os.path.join(PTPRESET, FLJSON)
 
-def unloadlorafowards(p):
-    global orig_Linear_forward, lactive, labug
-    lactive = labug = False
-    shared.opts.lora_functional =  orig_lora_functional
+    try:
+        with open(filepath, mode='r', encoding="utf-8") as f:
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
+            pr = {PRESET_KEYS[i][0]:settings[i] for i,_ in enumerate(PRESET_KEYS)}
+            # SBM Ordereddict might be better than list, quick search.
+            written = False
+            # if name == "lastrun": # SBM We should check the preset is unique in any case.
+            for i, preset in enumerate(presets):
+                if name == preset["name"]:
+                # if "lastrun" in preset["name"]:
+                    presets[i] = pr
+                    written = True
+            if not written:
+                presets.append(pr)
+        with open(filepath, mode='w', encoding="utf-8") as f:
+            # json.dump(json.dumps(presets), f, indent = 2)
+            json.dump(presets, f, indent = 2)
+    except Exception as e:
+        print(e)
 
-    import lora
-    lora.loaded_loras.clear()
-    if orig_Linear_forward != None :
-        torch.nn.Linear.forward = orig_Linear_forward
-        orig_Linear_forward = None
+    presets = loadpresets(filepath)
+    presets = LPRESET.update(presets)
+    return gr.update(choices=presets)
+
+def presetfallback():
+    """Swaps main json dir to alt if exists, attempts reload.
+    
+    """
+    global PTPRESET
+    global PTPRESETALT
+    
+    if PTPRESETALT is not None:
+        print("Unknown preset error, fallback.")
+        PTPRESET = PTPRESETALT
+        PTPRESETALT = None
+        return loadpresets(PTPRESET)
+    else: # Already attempted swap.
+        print("Presets could not be loaded.") 
+        return None
+
+def loadpresets(filepath):
+    presets = []
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            # presets = json.loads(json.load(f))
+            presets = json.load(f)
+            # presets = loadblob(presets) # DO NOT load all blobs - that's the point.
+    except OSError as e:
+        print("Init / preset error.")
+        presets = initpresets(filepath)
+    except TypeError:
+        print("Corrupted preset file, resetting.")
+        presets = initpresets(filepath)
+    except JSONDecodeError:
+        print("Preset file could not be decoded.")
+        presets = initpresets(filepath)
+    return presets
+
+def initpresets(filepath):
+    lpr = PRESETSDEF
+    # if not os.path.isfile(filepath):
+    try:
+        with open(filepath, mode='w', encoding="utf-8") as f:
+            lprj = []
+            for pr in lpr:
+                plen = min(len(PRESET_KEYS), len(pr)) # Future setting additions ignored.
+                prj = {PRESET_KEYS[i][0]:pr[i] for i in range(plen)}
+                lprj.append(prj)
+            #json.dump(json.dumps(lprj), f, indent = 2)
+            json.dump(lprj, f, indent = 2)
+            return lprj
+    except Exception as e:
+        return presetfallback()
+
+#####################################################
+##### Global settings
+
+EXTKEY = "regprp"
+EXTNAME = "Regional Prompter"
+# (id, label, type, extra_parms)
+EXTSETS = [
+("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
+("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
+
+]
+# Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
+# (id: def)
+DEXTSETV = dict()
+fseti = lambda x: shared.opts.data.get(EXTKEY + "_" + x, DEXTSETV[x])
+
+class Setting_Component():
+    """Creates gradio components with some standard req values.
+    
+    All must supply an id (used in code), label, component type. 
+    Default value and specific type settings can be overridden. 
+    """
+    section = (EXTKEY, EXTNAME)
+    def __init__(self, cid, clabel, ctyp, vdef = None, **kwargs):
+        self.cid = EXTKEY + "_" + cid
+        self.clabel = clabel
+        self.ctyp = ctyp
+        method = getattr(self, self.ctyp)
+        method(**kwargs)
+        if vdef is not None:
+            self.vdef = vdef
+        
+    def get(self):
+        """Get formatted setting.
+        
+        Input for shared.opts.add_option().
+        """
+        if self.ctyp == "textb":
+            return (self.cid, shared.OptionInfo(self.vdef, self.clabel, section = self.section))
+        return (self.cid, shared.OptionInfo(self.vdef, self.clabel,
+                                            self.ccomp, self.cparms, section = self.section))
+    
+    def textb(self, **kwargs):
+        """Textbox unusually requires no component.
+        
+        """
+        self.ccomp = gr.Textbox
+        self.vdef = ""
+        self.cparms = {}
+        self.cparms.update(kwargs)
+    
+    def check(self, **kwargs):
+        self.ccomp = gr.Checkbox
+        self.vdef = False
+        self.cparms = {"interactive": True}
+        self.cparms.update(kwargs)
+        
+    def slider(self, **kwargs):
+        self.ccomp = gr.Slider
+        self.vdef = 0
+        self.cparms = {"minimum": 1, "maximum": 10, "step": 1}
+        self.cparms.update(kwargs)
+
+def ext_on_ui_settings():
+    for (cid, clabel, ctyp, kwargs) in EXTSETS:
+        comp = Setting_Component(cid, clabel, ctyp, **kwargs)
+        opt = comp.get()
+        shared.opts.add_option(*opt)
+        DEXTSETV[cid] = comp.vdef
+
+def debugall(self):
+    print(f"mode : {self.mode}\ncalcmode : {self.calc}\nusebase : {self.usebase}")
+    print(f"base ratios : {self.bratios}\nusecommon : {self.usecom}\nusenegcom : {self.usencom}")
+    print(f"divide : {self.divide}\neq : {self.eq}")
+    print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}")
+    print(f"ratios : {self.aratios}\n")
+    print(f"prompt : {self.pe}\n")
+
+def bckeydealer(self, p):
+    '''
+    detect COMM/BASE keys and set flags and change to BREAK
+    '''
+    if KEYCOMM in p.prompt:
+        self.usecom = True
+    if self.usecom and KEYCOMM not in p.prompt:
+        p.prompt = p.prompt.replace(KEYBRK,KEYCOMM,1)
+    
+    if KEYCOMM in p.negative_prompt:
+        self.usencom = True
+    if self.usencom and KEYCOMM not in p.negative_prompt:
+        p.negative_prompt = p.negative_prompt.replace(KEYBRK,KEYCOMM,1)
+    
+    if KEYBASE in p.prompt:
+        self.usebase = True
+    if self.usebase and KEYBASE not in p.prompt:
+        p.prompt = p.prompt.replace(KEYBRK,KEYBASE,1)
+        
+    if KEYPROMPT in p.prompt.upper():
+        self.mode = "Prompt"
+
+def keyconverter(aratios,mode,usecom,usebase,p):
+    '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
+    keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
+    keychanger = keychanger[:-1]
+    #print(keychanger,p.prompt)
+    for change in keychanger:
+        if change == KEYCOMM and KEYCOMM in p.prompt: continue
+        if change == KEYBASE and KEYBASE in p.prompt: continue
+        p.prompt= p.prompt.replace(KEYBRK,change,1)
+
+def keyreplacer(p):
+    '''
+    replace all separators to BREAK
+    p.all_prompt and p.all_negative_prompt
+    '''
+    for key in ALLKEYS:
+        for i in lange(p.all_prompts):
+            p.all_prompts[i]= p.all_prompts[i].replace(key,KEYBRK)
+        
+        for i in lange(p.all_negative_prompts):
+            p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(key,KEYBRK)
+
+def keycounter(self, p):
+    pc = sum([p.prompt.count(text) for text in ALLALLKEYS])
+    npc = sum([p.negative_prompt.count(text) for text in ALLALLKEYS])
+    self.divide = [pc + 1, npc + 1]
+
+def andtobreak(p,nchangeand):
+    if not nchangeand and "AND" in p.prompt.upper():
+        p.prompt = p.prompt.replace("AND",KEYBRK)
+
+    if not nchangeand and "AND" in p.negative_prompt.upper():
+        p.negative_prompt = p.negative_prompt.replace("AND",KEYBRK)
+
+def resetpcache(p):
+    p.cached_c = [None,None]
+    p.cached_uc = [None,None]
+    p.cached_hr_c = [None, None]
+    p.cached_hr_uc = [None, None]
+
+def loraverchekcer(self):
+    try:
+        import lora
+        self.isbefore15 =  "assign_lora_names_to_compvis_modules" in dir(lora)
+        self.layer_name = "lora_layer_name" if self.isbefore15 else "network_layer_name"
+    except:
+        self.isbefore15 = False
+        self.layer_name = "lora_layer_name"  
+
+on_ui_settings(ext_on_ui_settings)
