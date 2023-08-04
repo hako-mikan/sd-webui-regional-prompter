@@ -28,15 +28,21 @@ def setloradevice(self):
     import lora
     if self.debug : print("change LoRA device for new lora")
     
-    if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
-        for l in lora.loaded_loras:
-            LORAID = LORAID + 1
-            if LORAID > MAXID:
-                LORAID = MINID
-            l.name = l.name + "added_by_regional_prompter" + str(random.random())
+    try:
+        import networks
+        isnet = True
+    except:
+        isnet = False
+    if not isnet:
+        if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
+            for l in lora.loaded_loras:
+                LORAID = LORAID + 1
+                if LORAID > MAXID:
+                    LORAID = MINID
+                l.name = l.name + "added_by_regional_prompter" + str(random.random())
 
-            for key in l.modules.keys():
-                changethedevice(l.modules[key])
+                for key in l.modules.keys():
+                    changethedevice(l.modules[key])
 
 def setuploras(self):
     global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
