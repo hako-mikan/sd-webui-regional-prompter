@@ -10,6 +10,10 @@
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
 ### Updates
+- add LoRA stop step
+LoRAを適用するのをやめるstepを指定できます。10 step程度で停止することで浸食、ノイズ等の防止、生成速度の向上を期待できます。
+You can specify the step at which to stop applying LoRA. By stopping around 10 steps, you can expect to prevent erosion and noise, and to improve generation speed.
+
 - support SDXL
 - support web-ui 1.5
 
