@@ -165,7 +165,7 @@ def compress_components(l):
     return [mode] + l[len(RPMODES) + 1:]
     
 class Script(modules.scripts.Script):
-    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False):
+    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0):
         self.active = active
         self.mode = mode
         self.calc = calc
@@ -194,6 +194,8 @@ class Script(modules.scripts.Script):
         # for latent mode
         self.filters = []
         self.lora_applied = False
+        self.lstop = int(lstop)
+        self.lstop_hr = int(lstop_hr)
         # for inpaintmask
         self.regmasks = None
         self.regbase = None
@@ -258,11 +260,13 @@ class Script(modules.scripts.Script):
                     presetname = gr.Textbox(label="Preset Name",lines=1,value="",interactive=True,elem_id="RP_preset_name",visible=True)
                     savesets = gr.Button(value="Save to Presets",variant='primary',elem_id="RP_savesetting")
             with gr.Row():
-                nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
-                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                lstop = gr.Textbox(label="LoRA stop step",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
+                lstop_hr = gr.Textbox(label="LoRA Hires stop step",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-
+            with gr.Row():
+                nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
+                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
             mode = gr.Textbox(value = "Matrix",visible = False)
 
             def changetabs(mode):
@@ -271,7 +275,7 @@ class Script(modules.scripts.Script):
                 return gr.Tabs.update(selected="t"+mode)
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
-            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -290,6 +294,8 @@ class Script(modules.scripts.Script):
                 (lnter,"RP LoRA Neg Te Ratios"),
                 (lnur,"RP LoRA Neg U Ratios"),
                 (threshold,"RP threshold"),
+                (lstop,"RP LoRA Stop Step"),
+                (lstop_hr,"RP LoRA Hires Stop Step"),
         ]
 
         for _,name in self.infotext_fields:
@@ -322,10 +328,10 @@ class Script(modules.scripts.Script):
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
         return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask]
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr]
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask):
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr):
         if type(polymask) == str:
             try:
                 polymask,_,_ = draw_image(np.array(Image.open(polymask)))
@@ -333,7 +339,7 @@ class Script(modules.scripts.Script):
                 pass
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask])
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr])
 
         tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
         if not any(key in tprompt for key in ALLALLKEYS) or not active:
@@ -355,12 +361,14 @@ class Script(modules.scripts.Script):
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
+            "RP LoRA Stop Step":lstop,
+            "RP LoRA Hires Stop Step":lstop_hr,
         })
 
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
-                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask)
+                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr)
 
-        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"))
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr)
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
 
@@ -435,7 +443,7 @@ class Script(modules.scripts.Script):
             p.disable_extra_networks = False
 
     def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask):
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr):
         if self.active:
             self.in_hr = True
             if "La" in self.calc:
@@ -443,7 +451,7 @@ class Script(modules.scripts.Script):
                 lora_namer(self, p, lnter, lnur)
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,**kwargs):
         # print(kwargs["prompts"])
         if self.active:
             resetpcache(p)
@@ -468,7 +476,8 @@ class Script(modules.scripts.Script):
                     denoiserdealer(self)
                     self.lora_applied = True
                 #escape reload loras in hires-fix
-                p.disable_extra_networks = True
+                if self.isbefore15:
+                    p.disable_extra_networks = True
 
     def postprocess(self, p, processed, *args):
         if self.active : 
@@ -999,6 +1008,6 @@ def loraverchekcer(self):
         self.layer_name = "lora_layer_name" if self.isbefore15 else "network_layer_name"
     except:
         self.isbefore15 = False
-        self.layer_name = "lora_layer_name"  
+        self.layer_name = "lora_layer_name"
 
 on_ui_settings(ext_on_ui_settings)

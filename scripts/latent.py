@@ -28,21 +28,24 @@ def setloradevice(self):
     import lora
     if self.debug : print("change LoRA device for new lora")
     
-    try:
-        import networks
-        isnet = True
-    except:
-        isnet = False
-    if not isnet:
-        if hasattr(lora,"lora_apply_weights"): # for new LoRA applying
-            for l in lora.loaded_loras:
-                LORAID = LORAID + 1
-                if LORAID > MAXID:
-                    LORAID = MINID
-                l.name = l.name + "added_by_regional_prompter" + str(random.random())
+    if hasattr(lora,"lora_apply_weights") or not self.isbefore15: # for new LoRA applying
+        oldnew =[]
+        for l in lora.loaded_loras:
+            LORAID = LORAID + 1
+            if LORAID > MAXID:
+                LORAID = MINID
+            old = l.name
+            new = l.name = l.name + "_in_RP" + str(LORAID)
+            oldnew.append([old,new])
 
-                for key in l.modules.keys():
-                    changethedevice(l.modules[key])
+            for key in l.modules.keys():
+                changethedevice(l.modules[key])
+    
+    if regioner.ctl:
+        import lora_ctl_network as ctl
+        for old,new in oldnew:
+            if old in ctl.lora_weights.keys():
+                ctl.lora_weights[new] = ctl.lora_weights[old]
 
 def setuploras(self):
     global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
@@ -134,7 +137,8 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                 self.rebacked = True
 
     if "La" in self.calc:
-        global in_hr
+        global in_hr, regioner
+        regioner.step = params.sampling_step
         in_hr = self.in_hr
         xt = params.x.clone()
         ict = params.image_cond.clone()
@@ -250,7 +254,7 @@ def lora_namer(self, p, lnter, lnur):
                 
     if self.debug: print("Regioner lorder: ",lorder)
     global regioner
-    regioner.__init__()
+    regioner.__init__(self.lstop,self.lstop_hr)
     u_llist = [d.copy() for d in ldictlist_u[1:]]
     u_llist.append(ldictlist_u[0].copy())
     regioner.te_llist = ldictlist_te
@@ -329,13 +333,16 @@ TE_START_NAME_XL = "0_transformer_text_model_encoder_layers_0_self_attn_q_proj"
 
 class LoRARegioner:
 
-    def __init__(self):
+    def __init__(self,stop=0,stop_hr=0):
         self.te_count = 0
         self.u_count = 0
         self.te_llist = [{}]
         self.u_llist = [{}]
         self.mlist = {}
         self.ctl = False
+        self.step = 0
+        self.stop = stop
+        self.stop_hr = stop_hr
 
         try:
             import lora_ctl_network as ctl
@@ -391,6 +398,9 @@ class LoRARegioner:
         if labug : print("u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
         self.mlist = self.u_llist[self.u_count % len(self.u_llist)]
         self.u_count  += 1
+
+        stopstep = self.stop_hr if in_hr else self.stop
+
         import lora
         for i in range(len(lora.loaded_loras)):
             lorakey = lora.loaded_loras[i].name
@@ -402,13 +412,13 @@ class LoRARegioner:
                         picked = True
                 if not picked:
                     print(f"key is not found in:{self.mlist.keys()}")
-            lora.loaded_loras[i].multiplier = self.mlist[lorakey]
-            lora.loaded_loras[i].unet_multiplier = self.mlist[lorakey]
-            if labug :print(lorakey,lora.loaded_loras[i].multiplier )
+            lora.loaded_loras[i].multiplier = 0 if self.step + 2 > stopstep and stopstep else self.mlist[lorakey]
+            lora.loaded_loras[i].unet_multiplier = 0 if self.step + 2 > stopstep and stopstep else self.mlist[lorakey]
+            if labug :print(lorakey,lora.loaded_loras[i].multiplier,lora.loaded_loras[i].multiplier ) 
             if self.ctl:
                 import lora_ctl_network as ctl
                 key = "hrunet" if in_hr else "unet"
-                if self.mlist[lorakey] == 0:
+                if self.mlist[lorakey] == 0 or (self.step + 2 > stopstep and stopstep):
                     ctl.lora_weights[lorakey][key] = [[0],[0]]
                     if labug :print(ctl.lora_weights[lorakey])
                 else:
