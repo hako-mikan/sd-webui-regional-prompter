@@ -430,14 +430,17 @@ class Script(modules.scripts.Script):
         if debug : debugall(self)
 
     def before_process_batch(self, p, *args, **kwargs):
-        self.current_prompts = kwargs["prompts"].copy()
-        p.disable_extra_networks = False
+        if self.active:
+            self.current_prompts = kwargs["prompts"].copy()
+            p.disable_extra_networks = False
 
     def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask):
-        self.in_hr = True
-        setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
-        lora_namer(self, p, lnter, lnur)
+        if self.active:
+            self.in_hr = True
+            if "La" in self.calc:
+                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
+                lora_namer(self, p, lnter, lnur)
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,**kwargs):
