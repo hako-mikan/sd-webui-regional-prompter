@@ -202,6 +202,8 @@ class Script(modules.scripts.Script):
         #for prompt region
         self.pe = []
         self.step = 0
+        
+        self.log = {}
 
     def title(self):
         return "Regional Prompter"
@@ -449,6 +451,12 @@ class Script(modules.scripts.Script):
             if "La" in self.calc:
                 setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
                 lora_namer(self, p, lnter, lnur)
+                self.log["before_hr"] = "passed"
+                try:
+                    import lora
+                    self.log["before_hr_loralist"] = [x.name for x in lora.loaded_loras]
+                except:
+                    pass
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,**kwargs):
@@ -468,6 +476,11 @@ class Script(modules.scripts.Script):
             if "La" in self.calc:
                 setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
                 lora_namer(self, p, lnter, lnur)
+                try:
+                    import lora
+                    self.log["loralist"] = [x.name for x in lora.loaded_loras]
+                except:
+                    pass
 
                 if self.lora_applied: # SBM Don't override orig twice on batch calls.
                     pass
@@ -937,7 +950,9 @@ def debugall(self):
     print(f"divide : {self.divide}\neq : {self.eq}")
     print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}")
     print(f"ratios : {self.aratios}\n")
-    print(f"prompt : {self.pe}\n")
+    print(f"prompt : {self.pe}")
+    print(f"env : before15:{self.isbefore15},isxl:{self.isxl}")
+    print(f"loras{self.log}")
 
 def bckeydealer(self, p):
     '''

@@ -2,6 +2,7 @@ from difflib import restore
 import random
 import copy
 from pprint import pprint
+import re
 from typing import Union
 import torch
 from modules import devices, shared, extra_networks
@@ -27,6 +28,7 @@ def setloradevice(self):
     regioner.__init__()
     import lora
     if self.debug : print("change LoRA device for new lora")
+    self.log["lora_apply_weights"] = hasattr(lora,"lora_apply_weights")
     
     if hasattr(lora,"lora_apply_weights") or not self.isbefore15: # for new LoRA applying
         oldnew =[]
@@ -140,6 +142,10 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         global in_hr, regioner
         regioner.step = params.sampling_step
         in_hr = self.in_hr
+        if "u_list" not in self.log.keys() and hasattr(regioner,"u_llist"):
+            self.log["u_list"] = regioner.u_llist.copy()
+        if "u_list_hr" not in self.log.keys() and hasattr(regioner,"u_llist") and in_hr:
+            self.log["u_list_hr"] = regioner.u_llist.copy()
         xt = params.x.clone()
         ict = params.image_cond.clone()
         st =  params.sigma.clone()
