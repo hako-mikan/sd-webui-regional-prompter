@@ -142,6 +142,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         global in_hr, regioner
         regioner.step = params.sampling_step
         in_hr = self.in_hr
+        regioner.u_count = 0
         if "u_list" not in self.log.keys() and hasattr(regioner,"u_llist"):
             self.log["u_list"] = regioner.u_llist.copy()
         if "u_list_hr" not in self.log.keys() and hasattr(regioner,"u_llist") and in_hr:
