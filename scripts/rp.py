@@ -394,7 +394,7 @@ class Script(modules.scripts.Script):
                 self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
     
         loraverchekcer(self)                                                  #check web-ui version
-        andtobreak(p, nchangeand)                                          #Change AND to BREAK
+        if not nchangeand: allchanger(p, "AND", KEYBRK)                                          #Change AND to BREAK
         if any(x in self.mode for x in ["Ver","Hor"]):
             keyconverter(aratios, self.mode, usecom, usebase, p) #convert BREAKs to ADDROMM/ADDCOL/ADDROW
         bckeydealer(self, p)                                                      #detect COMM/BASE keys
@@ -429,7 +429,7 @@ class Script(modules.scripts.Script):
         neighbor(self,p)                                                    #detect other extention
         keyreplacer(p)                                                      #replace all keys to BREAK
         commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
-        anddealer(self, p , calcmode)                                 #replace BREAK to AND in Latent mode
+        if "La" in self.calc: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
         thresholddealer(self, p, threshold)                          #set threshold
         
@@ -567,15 +567,13 @@ def hrdealer(p):
     p.all_hr_prompts = p.all_prompts
     p.all_hr_negative_prompts = p.all_negative_prompts
 
-def anddealer(self, p, calcmode):
-    if calcmode != "Latent" : return
-
-    p.prompt = p.prompt.replace(KEYBRK, "AND")
+def allchanger(p, a, b):
+    p.prompt = p.prompt.replace(a, b)
     for i in lange(p.all_prompts):
-        p.all_prompts[i] = p.all_prompts[i].replace(KEYBRK, "AND")
-    p.negative_prompt = p.negative_prompt.replace(KEYBRK, "AND")
+        p.all_prompts[i] = p.all_prompts[i].replace(a, b)
+    p.negative_prompt = p.negative_prompt.replace(a, b)
     for i in lange(p.all_negative_prompts):
-        p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(KEYBRK, "AND")
+        p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(a, b)
 
 def tokendealer(self, p):
     seps = "AND" if "La" in self.calc else KEYBRK
@@ -1002,13 +1000,6 @@ def keycounter(self, p):
     pc = sum([p.prompt.count(text) for text in ALLALLKEYS])
     npc = sum([p.negative_prompt.count(text) for text in ALLALLKEYS])
     self.divide = [pc + 1, npc + 1]
-
-def andtobreak(p,nchangeand):
-    if not nchangeand and "AND" in p.prompt.upper():
-        p.prompt = p.prompt.replace("AND",KEYBRK)
-
-    if not nchangeand and "AND" in p.negative_prompt.upper():
-        p.negative_prompt = p.negative_prompt.replace("AND",KEYBRK)
 
 def resetpcache(p):
     p.cached_c = [None,None]
