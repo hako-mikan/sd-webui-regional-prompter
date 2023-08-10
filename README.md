@@ -94,7 +94,7 @@ Using a `;` separator will automatically activate 2D region mode.
 ### Base ratio
 Sets the ratio of the base prompt; if base ratio is set to 0.2, then resulting images will consist of `20%*BASE_PROMPT + 80%*REGION_PROMPT`. It can also be specified for each region, in the same way as "Divide ratio" - 0.2, 0.3, 0.5, etc. If a single value is entered, the same value will be applied to all areas.
 
-### Divide mode
+### split mode
 Specifies the direction of division. Horizontal and vertical directions can be specified.
 In order to specify both horizontal and vertical regions, see 2D region mode.
 
