@@ -322,6 +322,8 @@ class Script(modules.scripts.Script):
             preset = expand_components(preset)
             # Change nulls to original value.
             preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
+            while  len(settings) >= len(preset):
+                preset.append(None)
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
             return preset
 
