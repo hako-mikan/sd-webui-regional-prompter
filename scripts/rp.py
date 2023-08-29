@@ -415,7 +415,6 @@ class Script(modules.scripts.Script):
                 shared.batch_cond_uncond = orig_batch_cond_uncond
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
-                print("koko")
                 setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
@@ -470,7 +469,6 @@ class Script(modules.scripts.Script):
                 self.current_prompts = kwargs["prompts"].copy()
             p.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
             p.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
-
             if "Pro" in self.mode:
                 reset_pmasks(self)
             if "La" in self.calc:
@@ -550,16 +548,16 @@ def commondealer(p, usecom, usencom):
         return prompt
 
     if usecom:
-        p.prompt = comadder(p.prompt)
         for pr in p.all_prompts:
             all_prompts.append(comadder(pr))
         p.all_prompts = all_prompts
+        p.prompt = all_prompts[0]
 
     if usencom:
-        p.negative_prompt = comadder(p.negative_prompt)
         for pr in p.all_negative_prompts:
             all_negative_prompts.append(comadder(pr))
         p.all_negative_prompts = all_negative_prompts
+        p.negative_prompt = all_negative_prompts[0]
 
 def hrdealer(p):
     p.hr_prompt = p.prompt
