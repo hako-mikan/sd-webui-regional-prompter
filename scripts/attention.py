@@ -109,11 +109,11 @@ def hook_forward(self, module):
         elif wa == 0:
             dsh = int(xs / dsw)
 
-        h_states = []
         contexts = context.clone()
 
         # SBM Matrix mode.
         def matsepcalc(x,contexts,mask,pn,divide):
+            h_states = []
             xs = x.size()[1]
             (dsh,dsw) = split_dims(xs, height, width, self)
             
