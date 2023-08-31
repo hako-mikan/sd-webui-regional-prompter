@@ -57,7 +57,9 @@ def setuploras(self):
     layer_name = self.layer_name
     orig_lora_functional = shared.opts.lora_functional
 
-    if self.isbefore15:
+    if 150 <= self.ui_version <= 159:
+        shared.opts.lora_functional = False
+    else:
         shared.opts.lora_functional = True
     orig_Linear_forward = torch.nn.Linear.forward
     torch.nn.Linear.forward = h_Linear_forward
@@ -393,13 +395,27 @@ class LoRARegioner:
         for (key, val) in zip(lkeys, lnur):
             self.u_llist[-1][key] *= val
 
+    def search_key(self,lora,i,xlist):
+        lorakey = lora.loaded_loras[i].name
+        if lorakey not in xlist.keys():
+            shin_key = flokey(lorakey)
+            picked = False
+            for mlkey in xlist.keys():
+                if mlkey.startswith(shin_key):
+                    lorakey = mlkey
+                    picked = True
+            if not picked:
+                print(f"key is not found in:{xlist.keys()}")
+        return lorakey
+
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
         self.te_count += 1
         import lora
         for i in range(len(lora.loaded_loras)):
-            lora.loaded_loras[i].multiplier = self.mlist[lora.loaded_loras[i].name]
-            lora.loaded_loras[i].te_multiplier = self.mlist[lora.loaded_loras[i].name]
+            lorakey = self.search_key(lora,i,self.mlist)
+            lora.loaded_loras[i].multiplier = self.mlist[lorakey]
+            lora.loaded_loras[i].te_multiplier = self.mlist[lorakey]
 
     def u_start(self):
         if labug : print("u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
@@ -410,15 +426,7 @@ class LoRARegioner:
 
         import lora
         for i in range(len(lora.loaded_loras)):
-            lorakey = lora.loaded_loras[i].name
-            if lorakey not in self.mlist.keys():
-                picked = False
-                for mlkey in self.mlist.keys():
-                    if lorakey in mlkey:
-                        lorakey = mlkey
-                        picked = True
-                if not picked:
-                    print(f"key is not found in:{self.mlist.keys()}")
+            lorakey = self.search_key(lora,i,self.mlist)
             lora.loaded_loras[i].multiplier = 0 if self.step + 2 > stopstep and stopstep else self.mlist[lorakey]
             lora.loaded_loras[i].unet_multiplier = 0 if self.step + 2 > stopstep and stopstep else self.mlist[lorakey]
             if labug :print(lorakey,lora.loaded_loras[i].multiplier,lora.loaded_loras[i].multiplier ) 
@@ -452,7 +460,7 @@ def h_Linear_forward(self, input):
     else:
         import networks
         if shared.opts.lora_functional:
-            return networks.network_forward(self, input, torch.nn.Linear_forward_before_network)
+            return networks.network_forward(self, input, networks.originals.Linear_forward)
         networks.network_apply_weights(self)
         return torch.nn.Linear_forward_before_network(self, input)
 

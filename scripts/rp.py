@@ -1,5 +1,6 @@
 import os.path
 from importlib import reload
+import launch
 from pprint import pprint
 import gradio as gr
 import numpy as np
@@ -37,7 +38,7 @@ PTPRESETALT = os.path.join(paths.script_path, "scripts")
 def lange(l):
     return range(len(l))
 
-orig_batch_cond_uncond = shared.batch_cond_uncond
+orig_batch_cond_uncond = shared.batch_cond_uncond if 155 > int(launch.git_tag().replace("v","").replace(".","")) else shared.opts.batch_cond_uncond 
 
 PRESETSDEF =[
     ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
@@ -72,8 +73,7 @@ def ui_tab(mode, submode):
                 maketemp = gr.Button(value="visualize and make template")
                 template = gr.Textbox(label="template",interactive=True,visible=True)
             with gr.Column():
-                areasimg = gr.Image(type="pil", show_label  = False).style(height=256,width=256)
-                    
+                areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256)
         # Need to add maketemp function based on base / common checks.
         vret = [mmode, ratios, maketemp, template, areasimg]
     elif mode == "Mask":
@@ -342,6 +342,8 @@ class Script(modules.scripts.Script):
             except:
                 pass
 
+        self.ui_version = int(launch.git_tag().replace("v","").replace(".",""))
+
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr])
 
@@ -414,7 +416,10 @@ class Script(modules.scripts.Script):
             ##### calcmode 
             if "Att" in calcmode:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-                shared.batch_cond_uncond = orig_batch_cond_uncond
+                if self.ui_version < 155:
+                    shared.batch_cond_uncond = orig_batch_cond_uncond
+                else:
+                    shared.opts.batch_cond_uncond = orig_batch_cond_uncond
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self)
@@ -489,8 +494,6 @@ class Script(modules.scripts.Script):
                     denoiserdealer(self)
                     self.lora_applied = True
                 #escape reload loras in hires-fix
-                if self.isbefore15:
-                    p.disable_extra_networks = True
 
     def postprocess(self, p, processed, *args):
         if self.active : 
@@ -520,7 +523,10 @@ def unloader(self,p):
 
     self.__init__()
     
-    shared.batch_cond_uncond = orig_batch_cond_uncond
+    if self.ui_version > 155:
+        shared.batch_cond_uncond = orig_batch_cond_uncond
+    else:
+        shared.opts.batch_cond_uncond  = orig_batch_cond_uncond
 
     unloadlorafowards(p)
 
@@ -529,6 +535,7 @@ def denoiserdealer(self):
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
         shared.batch_cond_uncond = False
+        shared.opts.batch_cond_uncond = False
 
     if not hasattr(self,"dr_callbacks"):
         self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
