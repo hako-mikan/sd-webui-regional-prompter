@@ -38,7 +38,7 @@ PTPRESETALT = os.path.join(paths.script_path, "scripts")
 def lange(l):
     return range(len(l))
 
-orig_batch_cond_uncond = shared.batch_cond_uncond if 155 > int(launch.git_tag().replace("v","").replace(".","")) else shared.opts.batch_cond_uncond 
+orig_batch_cond_uncond = shared.opts.batch_cond_uncond if hasattr(shared.opts,"batch_cond_uncond") else shared.batch_cond_uncond
 
 PRESETSDEF =[
     ["Vertical-3", "Vertical",'1,1,1',"",False,False,False,"Attention",False,"0","0"],
@@ -342,8 +342,6 @@ class Script(modules.scripts.Script):
             except:
                 pass
 
-        self.ui_version = int(launch.git_tag().replace("v","").replace(".",""))
-
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr])
 
@@ -416,10 +414,11 @@ class Script(modules.scripts.Script):
             ##### calcmode 
             if "Att" in calcmode:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-                if self.ui_version < 155:
-                    shared.batch_cond_uncond = orig_batch_cond_uncond
-                else:
+                if hasattr(shared.opts,"batch_cond_uncond"):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
+                else:                    
+                    shared.batch_cond_uncond = orig_batch_cond_uncond
+                    
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self)
@@ -523,10 +522,10 @@ def unloader(self,p):
 
     self.__init__()
     
-    if self.ui_version > 155:
+    if hasattr(shared.opts,"batch_cond_uncond"):
+        shared.opts.batch_cond_uncond = orig_batch_cond_uncond
+    else:                    
         shared.batch_cond_uncond = orig_batch_cond_uncond
-    else:
-        shared.opts.batch_cond_uncond  = orig_batch_cond_uncond
 
     unloadlorafowards(p)
 
@@ -534,8 +533,10 @@ def denoiserdealer(self):
     if self.calc =="Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
-        shared.batch_cond_uncond = False
-        shared.opts.batch_cond_uncond = False
+        if hasattr(shared.opts,"batch_cond_uncond"):
+            shared.opts.batch_cond_uncond = False
+        else:                    
+            shared.batch_cond_uncond = False
 
     if not hasattr(self,"dr_callbacks"):
         self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
@@ -1015,6 +1016,11 @@ def resetpcache(p):
     p.cached_hr_uc = [None, None]
 
 def loraverchekcer(self):
+    try:
+        self.ui_version = int(launch.git_tag().replace("v","").replace(".",""))
+    except:
+        self.ui_version = 100
+        
     try:
         import lora
         self.isbefore15 =  "assign_lora_names_to_compvis_modules" in dir(lora)
