@@ -184,14 +184,12 @@ street stalls
 Result is following,
 ![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg)
 
-This is an example of an area using 1,1;2,3,2;3,2,3. In Columns, it would look like this:
-![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msample1.png)
-<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msample1.png">
-
-In Rows, it would appear as follows:
-![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msample2.png)
-When the flip option is enabled in Rows, it would appear as follows:
-![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msample3.png)																																			  
+This is an example of an area using 1,1;2,3,2;3,2,3. In Columns, it would look like this:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle1.png)  
+In Rows, it would appear as follows:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle2.png)  
+When the flip option is enabled in Rows, it would appear as follows:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle3.png)	  																																		  
  
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
