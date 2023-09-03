@@ -134,10 +134,10 @@ best quality, 20yo lady in garden, blue skirt
 So you must set 4 prompts for 3 regions. If `Use base prompt` is also enabled 5 prompts are needed. The order is as follows: common, base, prompt1,prompt2,...
 
 ## <a id="2D">2D region assignment</a>
-You can specify a region in two dimensions. Using a special separator (`ADDCOL/ADDROW`), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is divided horizontally when separated by `ADDCOL` and vertically when separated by `ADDROW`. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use `BREAK` alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using `ADDBASE `as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples.
+You can specify a region in two dimensions. Using a special separator (`ADDCOL/ADDROW`), the area can be divided horizontally and vertically. Starting at the upper left corner, the area is splited by columns when separated by `ADDCOL` and rows when separated by `ADDROW`. The ratio of division is specified as a ratio separated by a semicolon. An example is shown below; although it is possible to use `BREAK` alone to describe only the ratio, it is easier to understand if COL/ROW is explicitly specified. Using `ADDBASE `as the first separator will result in the base prompt. If no ratio is specified or if the ratio does not match the number of separators, all regions are automatically treated as equal multiples.
 In this mode, the direction selected in `Divide mode` changes which separator is applied first:
-- In `Horizontal` mode, the image is first split to rows with `ADDROW` or `;` in Divide ratio, then each row is split to regions with `ADDCOL` or `,` in Divide ratio.
-- In `Vertical` mode, the image is first split to columns with `ADDCOL` or `,` in Divide ratio, then each column is split to regions with `ADDROW` or `;` in Divide ratio.
+- In `Coloms` mode, the image is first split to rows with `ADDROW` or `;` in Divide ratio, then each row is split to regions with `ADDCOL` or `,` in Divide ratio.
+- In `Rows` mode, the image is first split to columns with `ADDCOL` or `,` in Divide ratio, then each column is split to regions with `ADDROW` or `;` in Divide ratio.
 - When the flip option is enabled, it swaps the , and ;. This allows you to obtain an area that is rotated 90 degrees while keeping the same ratios used in Columns/Rows.
   
 In any case, the conversion of prompt clauses to rows and columns is from top to bottom, left to right.
@@ -153,7 +153,7 @@ orange dress and sofa
 ```
 Active : On
 Use base prompt : Off
-Divide mode : Horizontal
+Main splitting : Columns
 Divide Ratio : 1,2,1,1;2,4,6
 Base Ratio : 
 ```
@@ -202,7 +202,7 @@ When the flip option is enabled in Rows, it would appear as follows:
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
 It is now possible to specify regions using either multiple hand drawn masks or an uploaded image containing said masks (more on that later).
-- First, make sure you switch to `mask divide mode` next to `horizontal` / `vertical`. Otherwise the mask will be ignored and regions will be split by ratios as usual.
+- First, make sure you switch to `mask divide mode` next to `Colums` / `Rows`. Otherwise the mask will be ignored and regions will be split by ratios as usual.
 - Set `canvas width and height` according to desired image's, then press `create mask area`. If a different ratio or size is specified, the masks may be applied inaccurately (like in inpaint "just resize").
 - Draw an outline / area of the region desired on the canvas, then press `draw region`. This will fill out the area, and colour it according to the `region` number you picked. **Note that the drawing is in black only, filling and colouring are performed automatically.** The region mask will be displayed below, to the right.
 - Pressing `draw region` will automatically advance to the next region. It will also keep a list of which regions were used for building the masks later. Up to 360 regions can be used currently, but note that a few of them on the higher end are identical.
@@ -341,7 +341,7 @@ Please refer to the table below for each setting in `args`. No. corresponds to t
 |  1  |  Active  |True, False|Bool|False| 
 |  2  | debug   |True, False|Bool|False| 
 |  3  | Mode  |Matrix, Mask, Prompt|Text| Matrix|
-|  4  | Mode (Matrix)|Horizontal, Vertical|Text|Horizontal
+|  4  | Mode (Matrix)|Horizontal, Vertical, Colums, Rows|Text|Columns
 |  5  | Mode (Mask)| Mask |Text|Mask 
 |  6  | Mode (Prompt)| Prompt, Prompt-Ex |Text|Prompt
 |  7 |  Ratios||Text|1,1,1
