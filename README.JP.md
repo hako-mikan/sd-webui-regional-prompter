@@ -10,11 +10,18 @@
 ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
 ## 更新情報
-- [APIを通しての利用について](#apiを通した利用方法)
-- プロンプトによる領域指定の[チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md)
-- 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
-- 新機能 : [プロンプトによる領域指定](#divprompt) 
+- モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
+(日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
+- `,`,`;`を入れ替えるオプションを追加
+LoRAを適用するのをやめるstepを指定できます。10 step程度で停止することで浸食、ノイズ等の防止、生成速度の向上を期待できます。
+You can specify the step at which to stop applying LoRA. By stopping around 10 steps, you can expect to prevent erosion and noise, and to improve generation speed.
+(0に設定すると無効になります。0 is disable)
 
+- プロンプトモードの動作が改善しました  
+(The process has been adjusted to generate masks in three steps, and to recommence generation from the first stage./3ステップでマスクを生成し、そこから生成を1stepからやり直すよう修正しました)
+
+- 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
+- 新機能 : [プロンプトによる領域指定](#divprompt) ([チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md))
 
 [Symbiomatrix](https://github.com/Symbiomatrix)氏の協力によりより[柔軟な領域指定](#2次元領域指定実験的機能)が可能になりました。
 
