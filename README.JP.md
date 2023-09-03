@@ -102,7 +102,7 @@ orange dress and sofa
 ```
 Active : On
 Use base prompt : Off
-Divide mode : Horizontal
+Divide mode : Columns
 Divide Ratio : 1,2,1,1;2,4,6
 Base Ratio : 
 ```
@@ -111,7 +111,7 @@ Base Ratio :
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
  手描きマスク、またはアップロードされたマスクを使って領域を指定することができるようになりました。
-- まず、`horizontal` / `vertical` の横にある `mask divide mode` に切り替えていることを確認してください。そうしないと、マスクは無視され、領域は通常通り分割されます。
+- まず、`Columns` / `Rows` の横にある `mask divide mode` に切り替えていることを確認してください。そうしないと、マスクは無視され、領域は通常通り分割されます。
 - キャンバスの幅と高さを希望する画像に合わせて設定し、`create mask area`を押してください。異なる比率やサイズを指定すると、マスクが正確に適用されないことがあります。（インペイントの「リサイズだけ」のように）。
 - キャンバス領域に必要な領域の輪郭を描くか、完全に塗りつぶした後、`draw region`を押してください。これにより、マスクに対応する塗りつぶし多角形が追加され、`region` の番号に従って色が付けられます。
 - draw region` を押すと、region が +1 ずつ増えていき、次のregion を素早く描画することができます。また、後でマスクを作るためにどのリージョンが使われたかのリストも保持されます。現在、最大で ~360~ 256 のリージョンが使用できます。
@@ -234,7 +234,7 @@ APIを通してこの拡張を利用する場合には次の書式を使いま�
 |  1  |  Active  |True, False|Bool|False| 
 |  2  | debug   |True, False|Bool|False| 
 |  3  | Mode  |Matrix, Mask, Prompt|Text| Matrix|
-|  4  | Mode (Matrix)|Horizontal, Vertical|Text|Horizontal
+|  4  | Mode (Matrix)|Horizontal, Vertical, Columns, Rows|Text|Columns
 |  5  | Mode (Mask)| Mask |Text|Mask 
 |  6  | Mode (Prompt)| Prompt, Prompt-Ex |Text|Prompt
 |  7 |  Ratios||Text|1,1,1
