@@ -349,6 +349,9 @@ Please refer to the table below for each setting in `args`. No. corresponds to t
 |  15 | LoRA U-Net   |  | Text  | 0
 |  16 | Threshold   |  |Text| 0
 |  17 | Mask   |  | Text | 
+|  18 | LoRA stop step   |  | Text | 0
+|  19 | LoRA Hires stop step   |  | Text | 0
+|  20 | flip   |True, False| Bool | False
 
 ### Example Settings
 #### Matrix
