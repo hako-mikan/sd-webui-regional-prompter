@@ -138,7 +138,8 @@ You can specify a region in two dimensions. Using a special separator (`ADDCOL/A
 In this mode, the direction selected in `Divide mode` changes which separator is applied first:
 - In `Horizontal` mode, the image is first split to rows with `ADDROW` or `;` in Divide ratio, then each row is split to regions with `ADDCOL` or `,` in Divide ratio.
 - In `Vertical` mode, the image is first split to columns with `ADDCOL` or `,` in Divide ratio, then each column is split to regions with `ADDROW` or `;` in Divide ratio.
-
+- When the flip option is enabled, it swaps the , and ;. This allows you to obtain an area that is rotated 90 degrees while keeping the same ratios used in Columns/Rows.
+  
 In any case, the conversion of prompt clauses to rows and columns is from top to bottom, left to right.
 
 ```
@@ -159,7 +160,6 @@ Base Ratio :
 
 ![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
 
-																		
 																		 
 																																					
 																																																								   
@@ -191,7 +191,13 @@ street stalls
 Result is following,
 ![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg)
 
-																						  
+
+This is an example of an area using 1,1;2,3,2;3,2,3. In Columns, it would look like this:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle1.png)  
+In Rows, it would appear as follows:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle2.png)  
+When the flip option is enabled in Rows, it would appear as follows:  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle3.png)	  																																							  
  
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
