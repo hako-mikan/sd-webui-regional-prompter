@@ -27,7 +27,7 @@ from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer
                             restoremodel, setloradevice, setuploras, unloadlorafowards)
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
                              create_canvas, draw_region, #detect_mask, detect_polygons,  
-                             draw_image, save_mask, load_mask,
+                             draw_image, save_mask, load_mask, changecs,
                              floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
 FLJSON = "regional_prompter_presets.json"
@@ -66,16 +66,17 @@ def ui_tab(mode, submode):
         with gr.Row():
             mguide = gr.HTML(value = fhurl(MATRIXURL, "Matrix mode guide")) 
         with gr.Row():
-            mmode = gr.Radio(label="Split mode", choices=submode, value="Horizontal", type="value", interactive=True)
+            mmode = gr.Radio(label="Main Splitting", choices=submode, value="Columns", type="value", interactive=True)
             ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
         with gr.Row():
             with gr.Column():
                 maketemp = gr.Button(value="visualize and make template")
                 template = gr.Textbox(label="template",interactive=True,visible=True)
+                flipper = gr.Checkbox(label = 'flip "," and ";"', value = False)
             with gr.Column():
                 areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256)
         # Need to add maketemp function based on base / common checks.
-        vret = [mmode, ratios, maketemp, template, areasimg]
+        vret = [mmode, ratios, maketemp, template, areasimg, flipper]
     elif mode == "Mask":
         with gr.Row():
             xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
@@ -117,7 +118,7 @@ def ui_tab(mode, submode):
             
 # modes, submodes. Order must be maintained so dict is inadequate. Must have submode for component consistency.
 RPMODES = [
-("Matrix", ("Horizontal","Vertical","Random")),
+("Matrix", ("Columns","Rows","Random")),
 ("Mask", ("Mask",)),
 ("Prompt", ("Prompt", "Prompt-Ex")),
 ]
@@ -167,6 +168,8 @@ def compress_components(l):
 class Script(modules.scripts.Script):
     def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0):
         self.active = active
+        if mode == "Columns": mode = "Horizontal"
+        if mode == "Rows": mode = "Vertical"
         self.mode = mode
         self.calc = calc
         self.h = h
@@ -250,7 +253,7 @@ class Script(modules.scripts.Script):
                     tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
 
             # Hardcode expansion back to components for any specific events.
-            (mmode, ratios, maketemp, template, areasimg) = ltabp[0]
+            (mmode, ratios, maketemp, template, areasimg, flipper) = ltabp[0]
             (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
             (pmode, threshold) = ltabp[2]
             
@@ -277,7 +280,7 @@ class Script(modules.scripts.Script):
                 return gr.Tabs.update(selected="t"+mode)
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
-            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr]
+            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -298,6 +301,7 @@ class Script(modules.scripts.Script):
                 (threshold,"RP threshold"),
                 (lstop,"RP LoRA Stop Step"),
                 (lstop_hr,"RP LoRA Hires Stop Step"),
+                (flipper, "RP Flip")
         ]
 
         for _,name in self.infotext_fields:
@@ -323,19 +327,19 @@ class Script(modules.scripts.Script):
             # Change nulls to original value.
             preset = [settings[i] if p is None else p for (i,p) in enumerate(preset)]
             while  len(settings) >= len(preset):
-                preset.append(0)
+                    preset.append(0)
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
             return preset
 
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
         return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr]
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
 
     def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr):
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
         if type(polymask) == str:
             try:
                 polymask,_,_ = draw_image(np.array(Image.open(polymask)))
@@ -343,7 +347,7 @@ class Script(modules.scripts.Script):
                 pass
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr])
+                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
 
         tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
         if not any(key in tprompt for key in ALLALLKEYS) or not active:
@@ -367,10 +371,13 @@ class Script(modules.scripts.Script):
             "RP threshold": threshold,
             "RP LoRA Stop Step":lstop,
             "RP LoRA Hires Stop Step":lstop_hr,
+            "RP Flip": flipper,
         })
 
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
-                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr)
+                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper)
+
+        if flipper:aratios = changecs(aratios)
 
         self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr)
         self.all_prompts = p.all_prompts.copy()
@@ -450,7 +457,7 @@ class Script(modules.scripts.Script):
             p.disable_extra_networks = False
 
     def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr):
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper):
         if self.active:
             self.in_hr = True
             if "La" in self.calc:
@@ -464,7 +471,7 @@ class Script(modules.scripts.Script):
                     pass
 
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,**kwargs):
+                      usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,flipper,**kwargs):
         # print(kwargs["prompts"])
         if self.active:
             resetpcache(p)
@@ -984,7 +991,7 @@ def bckeydealer(self, p):
 
 def keyconverter(aratios,mode,usecom,usebase,p):
     '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
-    keychanger = makeimgtmp(aratios,mode,usecom,usebase,inprocess = True)
+    keychanger = makeimgtmp(aratios,mode,usecom,usebase,False, inprocess = True)
     keychanger = keychanger[:-1]
     #print(keychanger,p.prompt)
     for change in keychanger:

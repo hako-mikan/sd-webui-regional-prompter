@@ -265,16 +265,26 @@ def ratiosdealer(aratios2,aratios2r):
     aratios2r = list_rangify(aratios2r)
     return aratios2,aratios2r
 
+def changecs(ratios):
+    ratios = ratios.replace(",","_")
+    ratios = ratios.replace(";",",")
+    ratios = ratios.replace("_",";")
+    return ratios
 
-def makeimgtmp(aratios,mode,usecom,usebase,inprocess = False):
-    indflip = (mode == "Vertical")
+def makeimgtmp(aratios,mode,usecom,usebase, flipper, inprocess = False):
+    if mode == "Columns":mode = "Horizontal"
+    if mode == "Rows":mode = "Vertical"
+
+    if flipper: aratios = changecs(aratios)
+
+    indflip = ("Ver" in mode)
     if DELIMROW not in aratios: # Commas only - interpret as 1d.
         aratios2 = split_l2(aratios, DELIMROW, DELIMCOL, fmap = ffloatd(1), indflip = False)
         aratios2r = [1]
     else:
         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
                                         indsingles = True, fmap = ffloatd(1), indflip = indflip)
-
+    print(aratios2r,aratios2)
     (aratios2,aratios2r) = ratiosdealer(aratios2,aratios2r)
     
     h = w = 128
@@ -337,7 +347,7 @@ def matrixdealer(self, p, aratios, bratios, mode):
     if KEYCOMM in prompt: prompt = prompt.split(KEYCOMM,1)[1]
     if KEYBASE in prompt: prompt = prompt.split(KEYBASE,1)[1]
 
-    indflip = (mode == "Vertical")
+    indflip = ("Ver" in mode)
     if (KEYCOL in prompt.upper() or KEYROW in prompt.upper()):
         breaks = prompt.count(KEYROW) + prompt.count(KEYCOL) + int(self.usebase)
         # Prompt anchors, count breaks between special keywords.
