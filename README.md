@@ -10,6 +10,13 @@
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
 ### Updates
+- モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
+(日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
+- `,`,`;`を入れ替えるオプションを追加
+
+- Split Mode name changed, `Horizontal` -> `columns`, `Vertical` -> `Rows`
+- flip `,`,`;` option added
+
 - add LoRA stop step
 LoRAを適用するのをやめるstepを指定できます。10 step程度で停止することで浸食、ノイズ等の防止、生成速度の向上を期待できます。
 You can specify the step at which to stop applying LoRA. By stopping around 10 steps, you can expect to prevent erosion and noise, and to improve generation speed.
