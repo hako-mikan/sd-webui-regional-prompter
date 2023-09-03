@@ -68,8 +68,6 @@ LoRAを分離したい場合こちらを使用して下さい。生成時間は�
 [figma](https://civitai.com/models/7984/figma-anime-figures)LoRAを左右に分離して作成した例。  
 <img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample2.jpg" width="400">
 
-~~三月末のweb-uiのアップデートでLoRAの適用方法が変更され、これにより生成時間が大幅に長くなります。アップデートに不具合があるというわけでは無く、普通の使い方をするなら生成時間を短縮する効果がありますが、領域別適応をする段においては逆効果になるようです。いくつか対策を考えてみましたがいまのところ回避策は思い浮かびません。~~
-
 ### Split mode
 分割方向を指定します。水平、垂直方向が指定できます。
 
@@ -144,6 +142,13 @@ street stalls
 ![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/sample3.jpg
 )
 
+
+'1,1;2,3,2;3,2,3'を指定してColumnsを選んだ場合、  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle1.png)  
+Rowsに変えると  
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle2.png)  
+flipを有効にすると
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle3.png)	
 
 ## <a id="divprompt">region specification by prompt (experimental)</a>
 プロンプトによる領域指定です。これまでの領域指定では分割された領域に対してプロンプトを設定していました。この領域指定にはいくつかの問題があり、例えば縦に分割した場合、指定したオブジェクトがそこに限定されてしまします。プロンプトによる領域指定では指定したプロンプトを反映した領域が画像生成中に作成され、そこに対応したプロンプトが適用されます。よって、より柔軟な領域指定が可能になります。以下に例を示します。`apple printed`は`shirt`にだけ効果が反映されて欲しいわけですが、shirtには反映されず、林檎の現物が出てきたりするわけです。
