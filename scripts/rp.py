@@ -56,6 +56,7 @@ MASKURL = GUIDEURL + r"#mask-regions-aka-inpaint-experimental-function"
 PROMPTURL = GUIDEURL + r"/blob/main/prompt_en.md"
 PROMPTURL2 = GUIDEURL + r"/blob/main/prompt_ja.md"
 
+
 def ui_tab(mode, submode):
     """Structures components for mode tab.
     
@@ -206,7 +207,12 @@ class Script(modules.scripts.Script):
         self.pe = []
         self.step = 0
         
+        #script communicator
+        self.hooked = False
+        self.condi = 0
+
         self.log = {}
+
 
     def title(self):
         return "Regional Prompter"
@@ -592,6 +598,7 @@ def allchanger(p, a, b):
 
 def tokendealer(self, p):
     seps = "AND" if "La" in self.calc else KEYBRK
+    self.seps = seps
     text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
     ppl = text.split(seps)
     npl = p.all_negative_prompts[0].split(seps)
@@ -660,6 +667,11 @@ def bratioprompt(self, bratios):
     self.bratios = bratios
 
 def neighbor(self,p):
+    from modules.scripts import scripts_txt2img
+    for script in scripts_txt2img.alwayson_scripts:
+        if "negpip.py" in script.filename:
+            self.negpip = script
+
     try:
         args = p.script_args
         multi = ["MultiDiffusion",'Mixture of Diffusers']

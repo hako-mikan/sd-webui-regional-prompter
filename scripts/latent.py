@@ -141,6 +141,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                 self.rebacked = True
 
     if "La" in self.calc:
+        self.condi = 0
         global in_hr, regioner
         regioner.step = params.sampling_step
         in_hr = self.in_hr

@@ -13,9 +13,14 @@ def db(self,text):
     if self.debug:
         print(text)
 
-def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False):
+def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False, negpip = None):
     
     # Forward.
+
+    if negpip:
+        conds, contokens = negpip
+        context = torch.cat((context,conds),1)
+
     h = module.heads
     if isvanilla: # SBM Ddim / plms have the context split ahead along with x.
         pass
@@ -30,6 +35,13 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     q, k, v = map(lambda t: atm.rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
     sim = atm.einsum('b i d, b j d -> b i j', q, k) * module.scale
+
+    if negpip:
+        conds, contokens = negpip
+        if contokens:
+            for contoken in contokens:
+                start = (v.shape[1]//77 - len(contokens)) * 77
+                v[:,start+1:start+contoken,:] = -v[:,start+1:start+contoken,:] 
 
     if atm.exists(mask):
         mask = atm.rearrange(mask, 'b ... -> b (...)')
@@ -74,6 +86,7 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     return out
 
 def hook_forwards(self, root_module: torch.nn.Module, remove=False):
+    self.hooked = True if not remove else False
     for name, module in root_module.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":
             module.forward = hook_forward(self, module)
@@ -135,8 +148,11 @@ def hook_forward(self, module):
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                     
+                negpip = negpipdealer(i,pn)
+
                 i = i + 1
-                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step, isxl = self.isxl)
+
+                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step, isxl = self.isxl, negpip = negpip)
 
                 if len(self.nt) == 1 and not pn:
                     db(self,"return out for NP")
@@ -160,11 +176,14 @@ def hook_forward(self, module):
                     if cnet_ext > 0:
                         context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                         
+                    negpip = negpipdealer(i,pn)
+
                     db(self,f"tokens : {tll[i][0]*TOKENSCON}-{tll[i][1]*TOKENSCON}")
                     i = i + 1 + dcell.breaks
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
-                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, isxl = self.isxl)
+
+                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, isxl = self.isxl,negpip = negpip)
                     db(self,f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
                     if len(self.nt) == 1 and not pn:
                         db(self,"return out for NP")
@@ -245,9 +264,11 @@ def hook_forward(self, module):
                 cnet_ext = contexts.shape[1] - (contexts.shape[1] // TOKENSCON) * TOKENSCON
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
-                    
+
+                negpip = negpipdealer(i,pn) 
+
                 i = i + 1
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl, negpip = negpip)
 
                 if len(self.nt) == 1 and not pn:
                     db(self,"return out for NP")
@@ -317,7 +338,9 @@ def hook_forward(self, module):
 
                 userpp = self.pn and i == 0 and self.pfirst
 
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh, tokens = self.pe, step = self.step, isxl = self.isxl)
+                negpip = negpipdealer(self.condi,pn) if "La" in self.calc else negpipdealer(i,pn)
+
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh, tokens = self.pe, step = self.step, isxl = self.isxl, negpip = negpip)
 
                 if (len(self.nt) == 1 and not pn) or ("Pro" in self.mode and "La" in self.calc):
                     db(self,"return out for NP or Latent")
@@ -410,6 +433,7 @@ def hook_forward(self, module):
             self.pn = not self.pn
             self.count = 0
             self.pfirst = False
+            self.condi += 1
         db(self,f"output : {ox.size()}")
         return ox
 
@@ -531,3 +555,21 @@ def makerrandman(mask, h, w, latent = False): # make masks from attention cache 
     mask = mask.reshape(h*w)
     mask = torch.round(mask).long()
     return mask
+
+def negpipdealer(i,pn):
+    negpip = None
+    from modules.scripts import scripts_txt2img
+    for script in scripts_txt2img.alwayson_scripts:
+        if "negpip.py" in script.filename:
+            negpip = script
+
+    if negpip:
+        conds = negpip.conds if pn else negpip.unconds
+        tokens = negpip.contokens if pn else negpip.untokens
+        if conds and len(conds) >= i + 1:
+            if conds[i] is not None:
+                return [conds[i],tokens[i]]
+        else:
+            return None
+    else:
+        return None
