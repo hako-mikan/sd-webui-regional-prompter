@@ -126,6 +126,7 @@ def hook_forward(self, module):
 
         # SBM Matrix mode.
         def matsepcalc(x,contexts,mask,pn,divide):
+            db(self,f"in MatSepCalc")
             h_states = []
             xs = x.size()[1]
             (dsh,dsw) = split_dims(xs, height, width, self)
@@ -250,6 +251,7 @@ def hook_forward(self, module):
             return ox
 
         def masksepcalc(x,contexts,mask,pn,divide):
+            db(self,f"in MaskSepCalc")
             xs = x.size()[1]
             (dsh,dsw) = split_dims(xs, height, width, self)
 
@@ -325,6 +327,7 @@ def hook_forward(self, module):
             h_states = []
 
             tll = self.pt if pn else self.nt
+            db(self,f"in PromptSepCalc")
             db(self,f"tokens : {tll},pn : {pn}")
 
             for i, tl in enumerate(tll):
@@ -334,7 +337,8 @@ def hook_forward(self, module):
                 if cnet_ext > 0:
                     context = torch.cat([context,contexts[:,-cnet_ext:,:]],dim = 1)
                 
-                db(self,f"tokens : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
+                db(self,f"tokens3 : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
+                db(self,f"extra-tokens : {cnet_ext}")
 
                 userpp = self.pn and i == 0 and self.pfirst
 

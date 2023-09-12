@@ -167,7 +167,8 @@ def compress_components(l):
     return [mode] + l[len(RPMODES) + 1:]
     
 class Script(modules.scripts.Script):
-    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0):
+    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, 
+    usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0, diff = None):
         self.active = active
         if mode == "Columns": mode = "Horizontal"
         if mode == "Rows": mode = "Vertical"
@@ -207,6 +208,10 @@ class Script(modules.scripts.Script):
         self.pe = []
         self.step = 0
         
+        #for Differential
+        self.diff = diff
+        self.rps = None
+
         #script communicator
         self.hooked = False
         self.condi = 0
@@ -356,6 +361,20 @@ class Script(modules.scripts.Script):
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
 
         tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
+
+        if hasattr(p,"rps_diff"):
+            if p.rps_diff:
+                active = True
+                mmode = "Prompt"
+                xmode = "Prompt-Ex"
+                diff = p.rps_diff
+                if hasattr(p, "all_prompts_rps"):
+                    p.all_prompts = p.all_prompts_rps
+                if hasattr(p,"threshold"):
+                    if p.threshold is not None:threshold = str(p.threshold)
+        else:
+            diff = False
+
         if not any(key in tprompt for key in ALLALLKEYS) or not active:
             return unloader(self,p)
 
@@ -385,7 +404,9 @@ class Script(modules.scripts.Script):
 
         if flipper:aratios = changecs(aratios)
 
-        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr)
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, 
+        usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr, diff = diff)
+
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
 
@@ -452,7 +473,7 @@ class Script(modules.scripts.Script):
         thresholddealer(self, p, threshold)                          #set threshold
         
         bratioprompt(self, bratios)
-        hrdealer(p)
+        if not self.diff: hrdealer(p)
 
         print(f"Regional Prompter Active, Pos tokens : {self.ppt}, Neg tokens : {self.pnt}")
         if debug : debugall(self)
@@ -479,6 +500,7 @@ class Script(modules.scripts.Script):
     def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,flipper,**kwargs):
         # print(kwargs["prompts"])
+
         if self.active:
             resetpcache(p)
             self.in_hr = False
@@ -529,7 +551,7 @@ class Script(modules.scripts.Script):
 
 def unloader(self,p):
     if hasattr(self,"handle"):
-        print("unloaded")
+        #print("unloaded")
         hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
         del self.handle
 
@@ -553,6 +575,10 @@ def denoiserdealer(self):
 
     if not hasattr(self,"dr_callbacks"):
         self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
+
+    if self.diff:
+        if not hasattr(self,"dd_callbacks"):
+            self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
 
 
 ############################################################
@@ -671,6 +697,13 @@ def neighbor(self,p):
     for script in scripts_txt2img.alwayson_scripts:
         if "negpip.py" in script.filename:
             self.negpip = script
+
+    for script in scripts_txt2img.selectable_scripts:
+        if "rps.py" in script.filename:
+            self.rps = script
+            #print(dir(script))
+            #script.test1 = "kawattayone?"
+            #script.settest1("kawatta?") 
 
     try:
         args = p.script_args

@@ -98,46 +98,46 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         lim = 1 if self.isxl else 3
 
         if len(att.pmaskshw) > lim:
-            if "La" in self.calc:
-                self.filters = []
-                for b in range(self.batch_size):
+            self.filters = []
+            for b in range(self.batch_size):
 
-                    allmask = []
-                    basemask = None
-                    for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                        key = f"{t}-{b}"
-                        _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
-                        mask = mask.repeat(params.x.shape[1],1,1)
-                        basemask = 1 - mask if basemask is None else basemask - mask
-                        if self.ex:
-                            for l in range(len(allmask)):
-                                mt = allmask[l] - mask
-                                allmask[l] = torch.where(mt > 0, 1,0)
-                        allmask.append(mask)
-                    if not self.ex:
-                        sum = torch.stack(allmask, dim=0).sum(dim=0)
-                        sum = torch.where(sum == 0, 1 , sum)
-                        allmask = [mask  / sum for mask in allmask]
-                    basemask = torch.where(basemask > 0, 1, 0)
-                    allmask.insert(0,basemask)
-                    self.filters.extend(allmask)
-                att.maskready = True
-            else:    
+                allmask = []
+                basemask = None
                 for t, th, bratio in zip(self.pe, self.th, self.bratios):
-                    allmask = []
-                    for hw in att.pmaskshw:
-                        masks = None
-                        for b in range(self.batch_size):
-                            key = f"{t}-{b}"
-                            _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
-                            mask = mask.unsqueeze(0).unsqueeze(-1)
-                            masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
-                        allmask.append(mask)     
-                    att.pmasksf[key] = allmask
-                    att.maskready = True
+                    key = f"{t}-{b}"
+                    _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
+                    mask = mask.repeat(params.x.shape[1],1,1)
+                    basemask = 1 - mask if basemask is None else basemask - mask
+                    if self.ex:
+                        for l in range(len(allmask)):
+                            mt = allmask[l] - mask
+                            allmask[l] = torch.where(mt > 0, 1,0)
+                    allmask.append(mask)
+                if not self.ex:
+                    sum = torch.stack(allmask, dim=0).sum(dim=0)
+                    sum = torch.where(sum == 0, 1 , sum)
+                    allmask = [mask  / sum for mask in allmask]
+                basemask = torch.where(basemask > 0, 1, 0)
+                allmask.insert(0,basemask)
+                self.filters.extend(allmask)
+            att.maskready = True
+
+            for t, th, bratio in zip(self.pe, self.th, self.bratios):
+                allmask = []
+                for hw in att.pmaskshw:
+                    masks = None
+                    for b in range(self.batch_size):
+                        key = f"{t}-{b}"
+                        _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
+                        mask = mask.unsqueeze(0).unsqueeze(-1)
+                        masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
+                    allmask.append(mask)     
+                att.pmasksf[key] = allmask
+                att.maskready = True
 
             if not self.rebacked: 
                 cloneparams(self,params)
+                params.sampling_step = 0
                 self.rebacked = True
 
     if "La" in self.calc:
@@ -178,12 +178,12 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                         params.text_cond[b+a*batch] = ct[a + b * areas]
 
 def denoised_callback_s(self, params: CFGDenoisedParams):
-    if "La" in self.calc:
-        x = params.x
-        xt = params.x.clone()
-        batch = self.batch_size
-        areas = xt.shape[0] // batch -1
+    batch = self.batch_size
+    x = params.x
+    xt = params.x.clone()
+    areas = xt.shape[0] // batch - 1
 
+    if "La" in self.calc:
         # x.shape = [batch_size, C, H // 8, W // 8]
 
         if not "Pro" in self.mode:
@@ -213,6 +213,46 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                 fil = self.filters[a + b*areas]
                 if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
                 x[a + b * areas, :, :, :] =  xt[b + a*batch, :, :, :] * fil + x[x.size()[0]+(b-batch), :, :, :] * (1 - fil)
+
+    if params.total_sampling_steps == params.sampling_step + 2:
+        if self.rps is not None and self.diff:
+            if self.rps.latent is None:
+                self.rps.latent = x.clone()
+            elif self.rps.latent.shape[2:] != x.shape[2:] and self.rps.latent_hr is None:
+                self.rps.latent_hr = x.clone()
+            else:
+                for b in range(batch):
+                    for a in range(areas) :
+                        fil = self.filters[a+1]
+                        orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
+                        if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
+                        #print(type(self.rps.latent),type(fil))
+                        x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
+
+    if params.total_sampling_steps - 7 == params.sampling_step + 2:
+        if self.rps is not None and self.diff:
+            if self.rps.latent is not None:
+                if self.rps.latent.shape[2:] != x.shape[2:]:
+                    if self.rps.latent_hr is None: return
+                for b in range(batch):
+                    for a in range(areas) :
+                        fil = self.filters[a+1]
+                        orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
+                        if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
+                        #print(type(self.rps.latent),type(fil))
+                        x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
+
+    if params.sampling_step == 0 and self.in_hr:
+        if self.rps is not None and self.diff:
+            if self.rps.latent is not None:
+                if self.rps.latent.shape[2:] != x.shape[2:] and self.rps.latent_hr is None: return
+                for b in range(batch):
+                    for a in range(areas) :
+                        fil = self.filters[a+1]
+                        orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
+                        if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
+                        #print(type(self.rps.latent),type(fil))
+                        x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
 ######################################################
 ##### Latent Method
