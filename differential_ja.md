@@ -79,7 +79,7 @@ closed eyes;eyes;1.3;4の場合、実行時には[:(closed eyes:1.3):4]という
 smile;face;1.2;20-6(2)
 smile;face;1.2*10
 ```
-<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/dsample5.gif" width="800">  
+<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/dsample5.gif" width="400">  
 これは1行目から順に、
 ```
 初期画像を10フレーム
