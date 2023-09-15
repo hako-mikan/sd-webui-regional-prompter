@@ -106,8 +106,8 @@ ex-onとex-offはextra seedの設定です。なんやねんそれはと言う�
 ex-on,0.005
  ;lightning_thunder;1.00-1.05
 ```
-0.005はエクストラシードの変化量です。これぐらいに設定すると雷がほとばしるようなエフェクトになります。もっと強くすると全く別のシードから作られたような画像になってしまい意味が無くなってしまうので注意して下さい。
-<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/dsample4.gif" width="400">  
+0.005はエクストラシードの変化量です。これぐらいに設定すると雷がほとばしるようなエフェクトになります。もっと強くすると全く別のシードから作られたような画像になってしまい意味が無くなってしまうので注意して下さい。  
+<img src="https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/dsample4.gif" width="400">    
 lightning_thunderのようにつなげることで複数の単語に対しての領域を指定できます。プロンプト入力欄にも同じくつないだ言葉が入っている必要があります。
 1.00-1.05は5パターン描くように指示するために0.01刻みにしています。
 ```
