@@ -218,18 +218,21 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
         if self.rps is not None and self.diff:
             if self.rps.latent is None:
                 self.rps.latent = x.clone()
+                return
             elif self.rps.latent.shape[2:] != x.shape[2:] and self.rps.latent_hr is None:
                 self.rps.latent_hr = x.clone()
+                return
             else:
                 for b in range(batch):
                     for a in range(areas) :
                         fil = self.filters[a+1]
                         orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
                         if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
-                        #print(type(self.rps.latent),type(fil))
+                        #print("1",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
-    if params.total_sampling_steps - 7 == params.sampling_step + 2:
+    #if params.total_sampling_steps - 7 == params.sampling_step + 2:
+    if att.maskready:
         if self.rps is not None and self.diff:
             if self.rps.latent is not None:
                 if self.rps.latent.shape[2:] != x.shape[2:]:
@@ -239,7 +242,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                         fil = self.filters[a+1]
                         orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
                         if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
-                        #print(type(self.rps.latent),type(fil))
+                        #print("2",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
     if params.sampling_step == 0 and self.in_hr:
@@ -251,7 +254,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                         fil = self.filters[a+1]
                         orig = self.rps.latent if self.rps.latent.shape[2:] == x.shape[2:] else self.rps.latent_hr
                         if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
-                        #print(type(self.rps.latent),type(fil))
+                        #print("3",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
 ######################################################

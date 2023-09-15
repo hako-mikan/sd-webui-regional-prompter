@@ -132,7 +132,7 @@ class Script(scripts.Script):
             if prompt not in results.keys():
                 results[prompt] = None
 
-        print(f"Regional Prompter Differential Prompt Start")
+        print(f"Differential Regional Prompter Start")
         print(f"FPS = {duration}, {len(all_prompts)} frames, {round(len(all_prompts)/duration,3)} Sec")
 
         job = math.ceil((len(results)))
@@ -194,7 +194,7 @@ class Script(scripts.Script):
                 is_file = os.path.isfile(gifpath)
                 j = j + 1
 
-            all_result[0].save(gifpath, save_all=True, append_images=all_result[1:], optimize=False, duration=duration, loop=0)
+            all_result[0].save(gifpath, save_all=True, append_images=all_result[1:], optimize=False, duration=(1000 / duration), loop=0)
 
         outpath = p.outpath_samples
         if "mp4" in addout:
