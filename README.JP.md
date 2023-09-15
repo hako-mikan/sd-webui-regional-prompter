@@ -10,6 +10,7 @@
 ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
 ## 更新情報
+- 新機能「[差分生成・差分アニメ](differential_ja.md)」
 - [APIを通しての利用について](#apiを通した利用方法)
 - プロンプトによる領域指定の[チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md)
 - 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
