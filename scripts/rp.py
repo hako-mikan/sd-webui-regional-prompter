@@ -454,7 +454,7 @@ class Script(modules.scripts.Script):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
-                    
+                unloadlorafowards(p)
             else:
                 self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
                 setuploras(self)
