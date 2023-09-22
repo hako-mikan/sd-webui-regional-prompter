@@ -106,6 +106,7 @@ Specifies the direction of division. Horizontal and vertical directions can be s
 In order to specify both horizontal and vertical regions, see 2D region mode.
 
 ## calcutation mode  
+Internally, system use BREAK in Attention mode and AND in Latent mode. AND/BREAK is automatically converted depending on the mode being used, but there is no problem whether you input BREAK or AND in the prompt.
 ### Attention  
 Normally, use this one.  
 ### Latent
