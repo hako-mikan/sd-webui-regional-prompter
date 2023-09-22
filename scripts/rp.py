@@ -71,13 +71,16 @@ def ui_tab(mode, submode):
             ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
         with gr.Row():
             with gr.Column():
+                with gr.Row():
+                    thei = gr.Slider(label="Height", minimum=64, maximum=2048, value=512, step=8)
+                    twid = gr.Slider(label="Width", minimum=64, maximum=2048, value=512, step=8)
                 maketemp = gr.Button(value="visualize and make template")
                 template = gr.Textbox(label="template",interactive=True,visible=True)
                 flipper = gr.Checkbox(label = 'flip "," and ";"', value = False)
             with gr.Column():
                 areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256)
         # Need to add maketemp function based on base / common checks.
-        vret = [mmode, ratios, maketemp, template, areasimg, flipper]
+        vret = [mmode, ratios, maketemp, template, areasimg, flipper, thei, twid]
     elif mode == "Mask":
         with gr.Row():
             xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
@@ -264,7 +267,7 @@ class Script(modules.scripts.Script):
                     tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
 
             # Hardcode expansion back to components for any specific events.
-            (mmode, ratios, maketemp, template, areasimg, flipper) = ltabp[0]
+            (mmode, ratios, maketemp, template, areasimg, flipper, thei, twid) = ltabp[0]
             (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
             (pmode, threshold) = ltabp[2]
             
@@ -340,9 +343,11 @@ class Script(modules.scripts.Script):
             while  len(settings) >= len(preset):
                     preset.append(0)
             # return [gr.update(value = pr) for pr in preset] # SBM Why update? Shouldn't regular return do the job? 
+            if preset[0] == "Vertical":preset[0] = "Rows"
+            if preset[0] == "Horizontal":preset[0] = "Columns"
             return preset
 
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper,thei,twid],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
@@ -356,9 +361,9 @@ class Script(modules.scripts.Script):
                 polymask,_,_ = draw_image(np.array(Image.open(polymask)))
             except:
                 pass
-
+        
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
-                  
+
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
 
@@ -1038,7 +1043,7 @@ def bckeydealer(self, p):
 
 def keyconverter(aratios,mode,usecom,usebase,p):
     '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
-    keychanger = makeimgtmp(aratios,mode,usecom,usebase,False, inprocess = True)
+    keychanger = makeimgtmp(aratios,mode,usecom,usebase,False,512,512, inprocess = True)
     keychanger = keychanger[:-1]
     #print(keychanger,p.prompt)
     for change in keychanger:
