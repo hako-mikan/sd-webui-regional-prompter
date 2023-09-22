@@ -357,6 +357,8 @@ class Script(modules.scripts.Script):
             except:
                 pass
 
+        if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
+                  
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
 
