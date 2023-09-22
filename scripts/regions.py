@@ -271,7 +271,7 @@ def changecs(ratios):
     ratios = ratios.replace("_",";")
     return ratios
 
-def makeimgtmp(aratios,mode,usecom,usebase, flipper, inprocess = False):
+def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
     if mode == "Columns":mode = "Horizontal"
     if mode == "Rows":mode = "Vertical"
 
@@ -287,7 +287,9 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper, inprocess = False):
     print(aratios2r,aratios2)
     (aratios2,aratios2r) = ratiosdealer(aratios2,aratios2r)
     
-    h = w = 128
+    h = h // 4
+    w = w // 4
+
     fx = np.zeros((h,w, 3), np.uint8)
     # Base image is coloured according to region divisions, roughly.
     for (i,ocell) in enumerate(aratios2r):
