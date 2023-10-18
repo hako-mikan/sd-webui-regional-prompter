@@ -9,6 +9,18 @@
 ## Language control / 言語制御
 日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 
+## for LoHa, LoCon users 
+**About LoRA/LoCon/LoHa**  
+There are certain constraints due to the specifications of the Web-UI regarding the following:
+These constraints arise because the Web-UI cannot perform specific optimizations when applying LoRA and does not support mid-strength changes to LoRA.
+- **LoRA**: Can be applied without a decrease in speed.
+- **LoCon/LoHa**: It can be used when the "Use LoHa or other" option is enabled, but this results in a slower generation speed. This constraint is based on the Web-UI's specifications.
+
+**LoRA/LoCon/LoHaについて**
+LoRAの種類別の使用条件です。
+- **LoRA**: 速度低下なく適用可能です。
+- **LoCon/LoHa**: "Use Slow LoRA" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。
+
 ### Updates
 - モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
 (日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
