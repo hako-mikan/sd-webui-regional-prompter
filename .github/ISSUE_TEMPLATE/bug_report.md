@@ -14,3 +14,5 @@ A clear and concise description of what the bug is.
 Web-UI version:
 SD Version:
 LoRA/LoCon/LoHa
+
+**Other Enabled Extensions**
