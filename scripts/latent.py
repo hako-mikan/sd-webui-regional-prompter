@@ -535,12 +535,15 @@ def changethedevice(module):
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
 def unloadlorafowards(p):
-    global orig_Linear_forward, lactive, labug
-    lactive = labug = False
-    shared.opts.lora_functional =  orig_lora_functional
+    try:
+        global orig_Linear_forward, lactive, labug
+        lactive = labug = False
+        shared.opts.lora_functional =  orig_lora_functional
 
-    import lora
-    lora.loaded_loras.clear()
-    if orig_Linear_forward != None :
-        torch.nn.Linear.forward = orig_Linear_forward
-        orig_Linear_forward = None
+        import lora
+        lora.loaded_loras.clear()
+        if orig_Linear_forward != None :
+            torch.nn.Linear.forward = orig_Linear_forward
+            orig_Linear_forward = None
+    except:
+        pass
