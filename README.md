@@ -19,7 +19,7 @@ These constraints arise because the Web-UI cannot perform specific optimizations
 **LoRA/LoCon/LoHaについて**
 LoRAの種類別の使用条件です。
 - **LoRA**: 速度低下なく適用可能です。
-- **LoCon/LoHa**: "Use Slow LoRA" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。
+- **LoCon/LoHa**: "Use LoHa or other" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。
 
 ### Updates
 - モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
