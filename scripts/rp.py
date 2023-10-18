@@ -1,3 +1,4 @@
+from multiprocessing import dummy
 import os.path
 from importlib import reload
 import launch
@@ -23,14 +24,15 @@ except:
 import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
-from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer,
-                            restoremodel, setloradevice, setuploras, unloadlorafowards)
+from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards)
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
                              create_canvas, draw_region, #detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask, changecs,
                              floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 
 FLJSON = "regional_prompter_presets.json"
+OPTAND = "disable convert 'AND' to 'BREAK'"
+OPTUSEL = "Use LoHa or other"
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
@@ -77,10 +79,11 @@ def ui_tab(mode, submode):
                 maketemp = gr.Button(value="visualize and make template")
                 template = gr.Textbox(label="template",interactive=True,visible=True)
                 flipper = gr.Checkbox(label = 'flip "," and ";"', value = False)
+                overlay = gr.Slider(label="Overlay Ratio", minimum=0, maximum=1, step=0.1, value=0.5)
             with gr.Column():
-                areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256)
+                areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True)
         # Need to add maketemp function based on base / common checks.
-        vret = [mmode, ratios, maketemp, template, areasimg, flipper, thei, twid]
+        vret = [mmode, ratios, maketemp, template, areasimg, flipper, thei, twid, overlay]
     elif mode == "Mask":
         with gr.Row():
             xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
@@ -267,7 +270,7 @@ class Script(modules.scripts.Script):
                     tab.select(fn = lambda tabnum = i: RPMODES[tabnum][0], inputs=[], outputs=[rp_selected_tab])
 
             # Hardcode expansion back to components for any specific events.
-            (mmode, ratios, maketemp, template, areasimg, flipper, thei, twid) = ltabp[0]
+            (mmode, ratios, maketemp, template, areasimg, flipper, thei, twid, overlay) = ltabp[0]
             (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
             (pmode, threshold) = ltabp[2]
             
@@ -284,9 +287,13 @@ class Script(modules.scripts.Script):
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
             with gr.Row():
-                nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
-                debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
+                options = gr.CheckboxGroup(value=False, label="Options",choices=[OPTAND,OPTUSEL, "debug"], interactive=True, elem_id="RP_options")
             mode = gr.Textbox(value = "Matrix",visible = False)
+
+            dummy_img = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True, visible = False)
+
+            areasimg.upload(fn=lambda x: x,inputs=[areasimg],outputs = [dummy_img])
+            areasimg.clear(fn=lambda x: None,outputs = [dummy_img])
 
             def changetabs(mode):
                 modes = ["Matrix", "Mask", "Prompt"]
@@ -294,7 +301,7 @@ class Script(modules.scripts.Script):
                 return gr.Tabs.update(selected="t"+mode)
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
-            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
+            settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
         
         self.infotext_fields = [
                 (active, "RP Active"),
@@ -309,7 +316,7 @@ class Script(modules.scripts.Script):
                 (usebase, "RP Use Base"),
                 (usecom, "RP Use Common"),
                 (usencom, "RP Use Ncommon"),
-                (nchangeand,"RP Change AND"),
+                (options,"RP Options"),
                 (lnter,"RP LoRA Neg Te Ratios"),
                 (lnur,"RP LoRA Neg U Ratios"),
                 (threshold,"RP threshold"),
@@ -347,15 +354,19 @@ class Script(modules.scripts.Script):
             if preset[0] == "Horizontal":preset[0] = "Columns"
             return preset
 
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper,thei,twid],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper,thei,twid,dummy_img,overlay],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
-        return [active, debug, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
+        return [active, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
+                usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
 
-    def process(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
+    def process(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+                usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
+
+        debug = "debug" in options
+        self.slowlora = OPTUSEL in options
+
         if type(polymask) == str:
             try:
                 polymask,_,_ = draw_image(np.array(Image.open(polymask)))
@@ -365,7 +376,7 @@ class Script(modules.scripts.Script):
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
-                usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
+                usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper])
 
         tprompt = p.prompt[0] if type(p.prompt) == list else p.prompt
 
@@ -397,7 +408,7 @@ class Script(modules.scripts.Script):
             "RP Use Base":usebase,
             "RP Use Common":usecom,
             "RP Use Ncommon": usencom,
-            "RP Change AND" : nchangeand,
+            "RP Options" : options,
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
@@ -407,7 +418,7 @@ class Script(modules.scripts.Script):
         })
 
         savepresets("lastrun",rp_selected_tab, mmode, xmode, pmode, aratios,bratios,
-                     usebase, usecom, usencom, calcmode, nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper)
+                     usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper)
 
         if flipper:aratios = changecs(aratios)
 
@@ -437,7 +448,7 @@ class Script(modules.scripts.Script):
                 self.hr_w = self.hr_w - self.hr_w % ATTNSCALE
     
         loraverchekcer(self)                                                  #check web-ui version
-        if not nchangeand: allchanger(p, "AND", KEYBRK)                                          #Change AND to BREAK
+        if OPTAND not in options: allchanger(p, "AND", KEYBRK)                                          #Change AND to BREAK
         if any(x in self.mode for x in ["Ver","Hor"]):
             keyconverter(aratios, self.mode, usecom, usebase, p) #convert BREAKs to ADDROMM/ADDCOL/ADDROW
         bckeydealer(self, p)                                                      #detect COMM/BASE keys
@@ -490,12 +501,11 @@ class Script(modules.scripts.Script):
             self.current_prompts = kwargs["prompts"].copy()
             p.disable_extra_networks = False
 
-    def before_hr(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+    def before_hr(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper):
         if self.active:
             self.in_hr = True
             if "La" in self.calc:
-                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
                 lora_namer(self, p, lnter, lnur)
                 self.log["before_hr"] = "passed"
                 try:
@@ -504,7 +514,7 @@ class Script(modules.scripts.Script):
                 except:
                     pass
 
-    def process_batch(self, p, active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+    def process_batch(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,flipper,**kwargs):
         # print(kwargs["prompts"])
 
@@ -520,7 +530,6 @@ class Script(modules.scripts.Script):
             if "Pro" in self.mode:
                 reset_pmasks(self)
             if "La" in self.calc:
-                setloradevice(self) #change lora device cup to gup and restore model in new web-ui lora method
                 lora_namer(self, p, lnter, lnur)
                 try:
                     import lora
@@ -531,7 +540,6 @@ class Script(modules.scripts.Script):
                 if self.lora_applied: # SBM Don't override orig twice on batch calls.
                     pass
                 else:
-                    restoremodel(p)
                     denoiserdealer(self)
                     self.lora_applied = True
                 #escape reload loras in hires-fix

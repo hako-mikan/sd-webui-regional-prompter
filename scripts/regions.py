@@ -1,4 +1,5 @@
 import colorsys  # Polygon regions.
+from PIL import Image, ImageChops
 from pprint import pprint
 import cv2  # Polygon regions.
 import gradio as gr
@@ -271,7 +272,9 @@ def changecs(ratios):
     ratios = ratios.replace("_",";")
     return ratios
 
-def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
+def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, image = None, alpha = 0.5,inprocess = False):
+    if image is not None:
+        wo, ho  =  image.size
     if mode == "Columns":mode = "Horizontal"
     if mode == "Rows":mode = "Vertical"
 
@@ -284,11 +287,16 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
     else:
         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, 
                                         indsingles = True, fmap = ffloatd(1), indflip = indflip)
-    print(aratios2r,aratios2)
+
     (aratios2,aratios2r) = ratiosdealer(aratios2,aratios2r)
+
+    size = ho * wo
+
+    if 262144 >= size: div = 4
+    elif 1048576 >= size: div = 8
+    else :div = 16
     
-    h = h // 4
-    w = w // 4
+    h, w = ho // div, wo // div
 
     fx = np.zeros((h,w, 3), np.uint8)
     # Base image is coloured according to region divisions, roughly.
@@ -299,8 +307,8 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
                 fx[int(h*ocell[0]):int(h*ocell[1]),int(w*icell[0]):int(w*icell[1]),:] = fcolourise()
             else:
                 fx[int(h*icell[0]):int(h*icell[1]),int(w*ocell[0]):int(w*ocell[1]),:] = fcolourise()
-    img = PIL.Image.fromarray(fx)
-    draw = PIL.ImageDraw.Draw(img)
+    regions = PIL.Image.fromarray(fx)
+    draw = PIL.ImageDraw.Draw(regions)
     c = 0
     def coldealer(col):
         if sum(col) > 380:return "black"
@@ -313,6 +321,11 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
             else: 
                 draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
             c += 1
+
+    regions = regions.resize((wo, ho))
+
+    if image is not None:
+        regions = ImageChops.blend(regions, image, alpha)
     
     # Create ROW+COL template from regions.
     txtkey = fspace(DKEYINOUT[("in", indflip)]) + NLN  
@@ -329,7 +342,7 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,h,w, inprocess = False):
         changer = [l.strip() for l in changer]
         return changer
     
-    return img,gr.update(value = template)
+    return regions, gr.update(value = template)
 
 ################################################################
 ##### matrix
