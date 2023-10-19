@@ -16,7 +16,9 @@ islora = True
 in_hr = False
 layer_name = "lora_layer_name"
 orig_Linear_forward = None
-orig_lora_functional = shared.opts.lora_functional
+
+orig_lora_functional = shared.opts.lora_functional if hasattr(shared.opts,"lora_functional") else False
+
 lactive = False
 labug =False
 MINID = 1000

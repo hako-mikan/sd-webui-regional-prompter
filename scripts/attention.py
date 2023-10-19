@@ -13,7 +13,7 @@ def db(self,text):
     if self.debug:
         print(text)
 
-def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False, negpip = None):
+def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False, negpip = None, inhr = None):
     
     # Forward.
 
@@ -55,7 +55,7 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
     global pmaskshw,pmasks
 
-    hiresscaler(height,width,attn)
+    if inhr and not hiresfinished: hiresscaler(height,width,attn)
 
     if userpp and step > 0:
         for b in range(attn.shape[0] // 8):
@@ -98,10 +98,15 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
 
 def hook_forward(self, module):
     def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0):
-        if self.debug :
+        if self.debug:
             print("input : ", x.size())
             print("tokens : ", context.size())
             print("module : ", getattr(module, self.layer_name,None))
+        if "conds" in self.log:
+            if self.log["conds"] != context.size():
+                self.log["conds2"] = context.size()
+        else:
+            self.log["conds"] = context.size()
 
         if self.xsize == 0: self.xsize = x.shape[1]
         if "input" in getattr(module, self.layer_name,""):
@@ -344,7 +349,8 @@ def hook_forward(self, module):
 
                 negpip = negpipdealer(self.condi,pn) if "La" in self.calc else negpipdealer(i,pn)
 
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh, tokens = self.pe, step = self.step, isxl = self.isxl, negpip = negpip)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh,
+                                                 tokens = self.pe, step = self.step, isxl = self.isxl, negpip = negpip, inhr = self.in_hr)
 
                 if (len(self.nt) == 1 and not pn) or ("Pro" in self.mode and "La" in self.calc):
                     db(self,"return out for NP or Latent")
@@ -443,7 +449,7 @@ def hook_forward(self, module):
 
     return forward
 
-def split_dims(xs, height, width, self):
+def split_dims(xs, height, width, self = None):
     """Split an attention layer dimension to height + width.
     
     Originally, the estimate was dsh = sqrt(hw_ratio*xs),
@@ -472,7 +478,8 @@ def split_dims(xs, height, width, self):
         while dsh*dsw != xs:
             dsh, dsw = dsh//2, dsw//2
 
-    if self.debug : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
+    if self is not None:
+        if self.debug : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
 
     return dsh,dsw
 
@@ -493,14 +500,17 @@ pmasks = {}              #maked from attention maps
 pmaskshw =[]            #height,width set of u-net blocks
 pmasksf = {}             #maked from pmasks for regions
 maskready = False
+hiresfinished = False
 
 def reset_pmasks(self): # init parameters in every batch
-    global pmasks, pmaskshw, pmasksf, maskready
+    global pmasks, pmaskshw, pmasksf, maskready, hiresfinished, pmaskshw_o
     self.step = 0
     pmasks = {}
     pmaskshw =[]
+    pmaskshw_o =[]
     pmasksf = {}
     maskready = False
+    hiresfinished = False
     self.x = None
     self.rebacked = False
 
@@ -510,24 +520,29 @@ def savepmasks(self,processed):
         processed.images.append(img)
     return processed
 
-def hiresscaler(height,width,attn):
-    global pmaskshw,pmasks,pmasksf
-    if pmaskshw != []:
-        if height > pmaskshw[0][0]: # [0][0] has largest height, if in hires, height will be larger than [0][0]
-            (oh, ow) = pmaskshw[0]
-            del pmaskshw
-            pmaskshw = [(height,width)]
-            hiresmask(pmasks,oh, ow, height, width,attn[:,:,0])
-            for i in range(4):
-                m = (2 ** (i))
-                hiresmask(pmasksf,oh//m, ow//m, height//m,width//m ,torch.zeros(1,height*width //m**2,1),i = i )
+def hiresscaler(new_h,new_w,attn):
+    global pmaskshw,pmasks,pmasksf,pmaskshw_o, hiresfinished
+    nset = (new_h,new_w)
+    (old_h, old_w) = pmaskshw[0]
+    if new_h > pmaskshw[0][0]:
+        pmaskshw_o = pmaskshw.copy()
+        del pmaskshw
+        pmaskshw = [nset]
+        hiresmask(pmasks,old_h, old_w, new_h, new_w,at = attn[:,:,0])
+        hiresmask(pmasksf,old_h, old_w, new_h, new_w,i = 0)
+    if nset not in pmaskshw:
+        index = len(pmaskshw)
+        pmaskshw.append(nset)
+        old_h, old_w = pmaskshw_o[index]
+        hiresmask(pmasksf,old_h, old_w, new_h, new_w,i = index)
+        if index == 3: hiresfinished = True
 
-def hiresmask(masks,oh,ow,nh,nw,at,i = None):
+def hiresmask(masks,oh,ow,nh,nw,at = None,i = None):
     for key in masks.keys():
         mask = masks[key] if i is None else masks[key][i]
         mask = mask.view(8 if i is None else 1,oh,ow)
         mask = F.resize(mask,(nh,nw))
-        mask = mask.reshape_as(at)
+        mask = mask.reshape_as(at) if at is not None else mask.reshape(1,mask.shape[1] * mask.shape[2],1)
         if i is None:
             masks[key] = mask
         else:

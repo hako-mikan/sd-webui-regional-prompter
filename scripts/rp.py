@@ -1,4 +1,4 @@
-from multiprocessing import dummy
+import inspect
 import os.path
 from importlib import reload
 import launch
@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
-from modules import paths, scripts, shared, extra_networks
+from modules import paths, scripts, shared, extra_networks, prompt_parser
 from modules.processing import Processed
 from modules.script_callbacks import (on_ui_settings,
                                       CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
@@ -36,6 +36,8 @@ OPTUSEL = "Use LoHa or other"
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
+
+
 
 def lange(l):
     return range(len(l))
@@ -173,7 +175,7 @@ def compress_components(l):
     return [mode] + l[len(RPMODES) + 1:]
     
 class Script(modules.scripts.Script):
-    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, usebase = False, 
+    def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, debug2 = False, usebase = False, 
     usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0, diff = None):
         self.active = active
         if mode == "Columns": mode = "Horizontal"
@@ -183,6 +185,7 @@ class Script(modules.scripts.Script):
         self.h = h
         self.w = w
         self.debug = debug
+        self.debug2 = debug2
         self.usebase = usebase
         self.usecom = usecom
         self.usencom = usencom
@@ -222,8 +225,16 @@ class Script(modules.scripts.Script):
         self.hooked = False
         self.condi = 0
 
+        self.used_prompt = ""
+        self.logprops = ["active","mode","usebase","usecom","usencom","batch_size","isxl","h","w","aratios",
+                        "divide","count","eq","pn","hr","pe","step","diff","used_prompt"]
         self.log = {}
 
+    def logger(self):
+        for prop in self.logprops:
+            print(f"{prop} = {getattr(self,prop,None)}")
+        for key in self.log.keys():
+            print(f"{key} = {self.log[key]}")
 
     def title(self):
         return "Regional Prompter"
@@ -287,7 +298,7 @@ class Script(modules.scripts.Script):
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
             with gr.Row():
-                options = gr.CheckboxGroup(value=False, label="Options",choices=[OPTAND,OPTUSEL, "debug"], interactive=True, elem_id="RP_options")
+                options = gr.CheckboxGroup(value=False, label="Options",choices=[OPTAND, OPTUSEL, "debug", "debug2"], interactive=True, elem_id="RP_options")
             mode = gr.Textbox(value = "Matrix",visible = False)
 
             dummy_img = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True, visible = False)
@@ -365,6 +376,7 @@ class Script(modules.scripts.Script):
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
 
         debug = "debug" in options
+        debug2 = "debug2" in options
         self.slowlora = OPTUSEL in options
 
         if type(polymask) == str:
@@ -422,7 +434,7 @@ class Script(modules.scripts.Script):
 
         if flipper:aratios = changecs(aratios)
 
-        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, 
+        self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, debug2,
         usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr, diff = diff)
 
         self.all_prompts = p.all_prompts.copy()
@@ -485,6 +497,7 @@ class Script(modules.scripts.Script):
 
         neighbor(self,p)                                                    #detect other extention
         keyreplacer(p)                                                      #replace all keys to BREAK
+        blankdealer(self, p)                                               #add "_" if prompt of last region is blank
         commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
         if "La" in self.calc: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
@@ -494,6 +507,8 @@ class Script(modules.scripts.Script):
         if not self.diff: hrdealer(p)
 
         print(f"Regional Prompter Active, Pos tokens : {self.ppt}, Neg tokens : {self.pnt}")
+        self.used_prompt = p.all_prompts[0]
+
         if debug : debugall(self)
 
     def before_process_batch(self, p, *args, **kwargs):
@@ -553,7 +568,7 @@ class Script(modules.scripts.Script):
         if "Pro" in self.mode and not fseti("hidepmask"):
             savepmasks(self, processed)
 
-        if self.debug : debugall(self)
+        if self.debug or self.debug2 : self.logger()
 
         unloader(self, p)
 
@@ -598,9 +613,20 @@ def denoiserdealer(self):
 
 ############################################################
 ##### prompts, tokens
+def blankdealer(self, p):
+    seps = "AND" if "La" in self.calc else KEYBRK
+    all_prompts=[]
+    for prompt in p.all_prompts:
+        regions = prompt.split(seps)
+        if regions[-1].strip() in ["",","]:
+            prompt = prompt + " _"
+        all_prompts.append(prompt)
+    p.all_prompts = all_prompts
+
 def commondealer(p, usecom, usencom):
     all_prompts = []
     all_negative_prompts = []
+
     def comadder(prompt):
         ppl = prompt.split(KEYBRK)
         for i in range(len(ppl)):
@@ -641,6 +667,7 @@ def tokendealer(self, p):
     seps = "AND" if "La" in self.calc else KEYBRK
     self.seps = seps
     text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
+    text = prompt_parser.get_learned_conditioning_prompt_schedules([text],p.steps)[0][0][1]
     ppl = text.split(seps)
     npl = p.all_negative_prompts[0].split(seps)
     targets =[p.split(",")[-1] for p in ppl[1:]]
@@ -1095,5 +1122,19 @@ def loraverchekcer(self):
     except:
         self.isbefore15 = False
         self.layer_name = "lora_layer_name"
+
+def log(prop):
+    frame = inspect.currentframe().f_back
+    local_vars = frame.f_locals
+    var_name = None
+    for k, v in local_vars.items():
+        if v is prop:
+            var_name = k
+            break
+
+    if var_name:
+        print(f"{var_name} = {prop}")
+    else:
+        print("Property not found in local scope.")
 
 on_ui_settings(ext_on_ui_settings)
