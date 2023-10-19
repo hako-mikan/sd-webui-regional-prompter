@@ -17,7 +17,7 @@ in_hr = False
 layer_name = "lora_layer_name"
 orig_Linear_forward = None
 
-orig_lora_functional = shared.opts.lora_functional if hasattr(shared.opts,"lora_functional") else False
+orig_lora_functional = False
 
 lactive = False
 labug =False
@@ -31,12 +31,15 @@ def setuploras(self):
     labug = self.debug
     islora = self.isbefore15
     layer_name = self.layer_name
-    orig_lora_functional = shared.opts.lora_functional
+    orig_lora_functional = orig_lora_functional = shared.opts.lora_functional if hasattr(shared.opts,"lora_functional") else False
 
-    if 150 <= self.ui_version <= 159 or self.slowlora:
-        shared.opts.lora_functional = False
-    else:
-        shared.opts.lora_functional = True
+    try:
+        if 150 <= self.ui_version <= 159 or self.slowlora:
+            shared.opts.lora_functional = False
+        else:
+            shared.opts.lora_functional = True
+    except:
+        pass
     orig_Linear_forward = torch.nn.Linear.forward
     torch.nn.Linear.forward = h_Linear_forward
 
