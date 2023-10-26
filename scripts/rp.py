@@ -303,6 +303,8 @@ class Script(modules.scripts.Script):
 
             dummy_img = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True, visible = False)
 
+            dummy_true = gr.Checkbox(value=True, visible=False)
+
             areasimg.upload(fn=lambda x: x,inputs=[areasimg],outputs = [dummy_img])
             areasimg.clear(fn=lambda x: None,outputs = [dummy_img])
 
@@ -369,11 +371,19 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
-        return [active, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
+        return [active, dummy_true, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
 
-    def process(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+    def process(self, p, active, a_debug , rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
+
+        if type(options) is bool:
+            options = ["disable convert 'AND' to 'BREAK'"] if options else []
+        elif type(options) is str:
+            options = options.split(",")
+
+        if a_debug:
+            options.append("debug")
 
         debug = "debug" in options
         debug2 = "debug2" in options
@@ -516,7 +526,7 @@ class Script(modules.scripts.Script):
             self.current_prompts = kwargs["prompts"].copy()
             p.disable_extra_networks = False
 
-    def before_hr(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+    def before_hr(self, p, active, _, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper):
         if self.active:
             self.in_hr = True
@@ -529,7 +539,7 @@ class Script(modules.scripts.Script):
                 except:
                     pass
 
-    def process_batch(self, p, active, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
+    def process_batch(self, p, active, _, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr,flipper,**kwargs):
         # print(kwargs["prompts"])
 
