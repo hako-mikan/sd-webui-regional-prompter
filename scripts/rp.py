@@ -303,7 +303,7 @@ class Script(modules.scripts.Script):
 
             dummy_img = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True, visible = False)
 
-            dummy_true = gr.Checkbox(value=True, visible=False)
+            dummy_false = gr.Checkbox(value=False, visible=False)
 
             areasimg.upload(fn=lambda x: x,inputs=[areasimg],outputs = [dummy_img])
             areasimg.clear(fn=lambda x: None,outputs = [dummy_img])
@@ -371,7 +371,7 @@ class Script(modules.scripts.Script):
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
-        return [active, dummy_true, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
+        return [active, dummy_false, rp_selected_tab, mmode, xmode, pmode, ratios, baseratios,
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
 
     def process(self, p, active, a_debug , rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
@@ -382,7 +382,7 @@ class Script(modules.scripts.Script):
         elif type(options) is str:
             options = options.split(",")
 
-        if a_debug:
+        if a_debug == True:
             options.append("debug")
 
         debug = "debug" in options
