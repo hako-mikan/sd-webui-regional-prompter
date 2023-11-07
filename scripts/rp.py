@@ -67,16 +67,16 @@ def ui_tab(mode, submode):
         with gr.Row():
             mguide = gr.HTML(value = fhurl(MATRIXURL, "Matrix mode guide")) 
         with gr.Row():
-            mmode = gr.Radio(label="Main Splitting", choices=submode, value="Columns", type="value", interactive=True)
+            mmode = gr.Radio(label="Main Splitting", choices=submode, value="Columns", type="value", interactive=True,elem_id="RP_main_splitting")
             ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    thei = gr.Slider(label="Height", minimum=64, maximum=2048, value=512, step=8)
-                    twid = gr.Slider(label="Width", minimum=64, maximum=2048, value=512, step=8)
+                    twid = gr.Slider(label="Width", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_matrix_width")
+                    thei = gr.Slider(label="Height", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_matrix_height")
                 maketemp = gr.Button(value="visualize and make template")
-                template = gr.Textbox(label="template",interactive=True,visible=True)
-                flipper = gr.Checkbox(label = 'flip "," and ";"', value = False)
+                template = gr.Textbox(label="template",interactive=True,visible=True,elem_id="RP_matrix_template")
+                flipper = gr.Checkbox(label = 'flip "," and ";"', value = False,elem_id="RP_matrix_flip")
             with gr.Column():
                 areasimg = gr.Image(type="pil", show_label  = False, height=256, width=256)
         # Need to add maketemp function based on base / common checks.
@@ -85,15 +85,15 @@ def ui_tab(mode, submode):
         with gr.Row():
             xguide = gr.HTML(value = fhurl(MASKURL, "Inpaint+ mode guide"))
         with gr.Row(): # Creep: Placeholder, should probably make this invisible.
-            xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True)
+            xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True,elem_id="RP_mask_mode")
         with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
             polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask",
                                 source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
         with gr.Row():
             with gr.Column():
-                num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1)
-                canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8)
-                canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8)
+                num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region")
+                canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_width")
+                canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_height")
                 btn = gr.Button(value = "Draw region + show mask")
                 # btn2 = gr.Button(value = "Display mask") # Not needed.
                 cbtn = gr.Button(value="Create mask area")
@@ -113,8 +113,8 @@ def ui_tab(mode, submode):
             pguide = gr.HTML(value = fhurl(PROMPTURL, "Prompt mode guide"))
             pguide2 = gr.HTML(value = fhurl(PROMPTURL2, "Extended prompt guide (jp)"))
         with gr.Row():
-            pmode = gr.Radio(label="Prompt mode", choices=submode, value="Prompt", type="value", interactive=True)
-            threshold = gr.Textbox(label = "threshold", value = 0.4, interactive=True)
+            pmode = gr.Radio(label="Prompt mode", choices=submode, value="Prompt", type="value", interactive=True, elem_id="RP_prompt_mode")
+            threshold = gr.Textbox(label = "threshold", value = 0.4, interactive=True, elem_id="RP_prompt_threshold")
         
         vret = [pmode, threshold]
 
@@ -245,14 +245,14 @@ class Script(modules.scripts.Script):
                 urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
             with gr.Row():
                 # mode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
-                calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True)
+                calcmode = gr.Radio(label="Generation mode", choices=["Attention", "Latent"], value="Attention",  type="value", interactive=True, elem_id="RP_generation_mode",)
             with gr.Row(visible=True):
                 # ratios = gr.Textbox(label="Divide Ratio",lines=1,value="1,1",interactive=True,elem_id="RP_divide_ratio",visible=True)
                 baseratios = gr.Textbox(label="Base Ratio", lines=1,value="0.2",interactive=True,  elem_id="RP_base_ratio", visible=True)
             with gr.Row():
                 usebase = gr.Checkbox(value=False, label="Use base prompt",interactive=True, elem_id="RP_usebase")
                 usecom = gr.Checkbox(value=False, label="Use common prompt",interactive=True,elem_id="RP_usecommon")
-                usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon")
+                usencom = gr.Checkbox(value=False, label="Use common negative prompt",interactive=True,elem_id="RP_usecommon_negative")
             
             # Tabbed modes.
             with gr.Tabs(elem_id="RP_mode") as tabs:
@@ -281,12 +281,12 @@ class Script(modules.scripts.Script):
             with gr.Row():
                 lstop = gr.Textbox(label="LoRA stop step",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
                 lstop_hr = gr.Textbox(label="LoRA Hires stop step",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
-                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio",visible=True)
-                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio",visible=True)
+                lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio_negative",visible=True)
+                lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio_negative",visible=True)
             with gr.Row():
                 nchangeand = gr.Checkbox(value=False, label="disable convert 'AND' to 'BREAK'", interactive=True, elem_id="RP_ncand")
                 debug = gr.Checkbox(value=False, label="debug", interactive=True, elem_id="RP_debug")
-            mode = gr.Textbox(value = "Matrix",visible = False)
+            mode = gr.Textbox(value = "Matrix",visible = False, elem_id="RP_divide_mode")
 
             def changetabs(mode):
                 modes = ["Matrix", "Mask", "Prompt"]
