@@ -290,7 +290,7 @@ class Script(modules.scripts.Script):
 
             def changetabs(mode):
                 modes = ["Matrix", "Mask", "Prompt"]
-                if mode not in modes: mode = "Maxtix"
+                if mode not in modes: mode = "Matrix"
                 return gr.Tabs.update(selected="t"+mode)
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
