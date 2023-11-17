@@ -16,38 +16,14 @@ islora = True
 in_hr = False
 layer_name = "lora_layer_name"
 orig_Linear_forward = None
+
 orig_lora_functional = False
+
 lactive = False
 labug =False
 MINID = 1000
 MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
-
-def setloradevice(self):
-    global LORAID
-    regioner.__init__()
-    import lora
-    if self.debug : print("change LoRA device for new lora")
-    self.log["lora_apply_weights"] = hasattr(lora,"lora_apply_weights")
-    
-    if hasattr(lora,"lora_apply_weights") or not self.isbefore15: # for new LoRA applying
-        oldnew =[]
-        for l in lora.loaded_loras:
-            LORAID = LORAID + 1
-            if LORAID > MAXID:
-                LORAID = MINID
-            old = l.name
-            new = l.name = l.name + "_in_RP" + str(LORAID)
-            oldnew.append([old,new])
-
-            for key in l.modules.keys():
-                changethedevice(l.modules[key])
-    
-    if regioner.ctl:
-        import lora_ctl_network as ctl
-        for old,new in oldnew:
-            if old in ctl.lora_weights.keys():
-                ctl.lora_weights[new] = ctl.lora_weights[old]
 
 def setuploras(self):
     global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
@@ -55,12 +31,15 @@ def setuploras(self):
     labug = self.debug
     islora = self.isbefore15
     layer_name = self.layer_name
-    orig_lora_functional = shared.opts.lora_functional
+    orig_lora_functional = orig_lora_functional = shared.opts.lora_functional if hasattr(shared.opts,"lora_functional") else False
 
-    if 150 <= self.ui_version <= 159:
-        shared.opts.lora_functional = False
-    else:
-        shared.opts.lora_functional = True
+    try:
+        if 150 <= self.ui_version <= 159 or self.slowlora:
+            shared.opts.lora_functional = False
+        else:
+            shared.opts.lora_functional = True
+    except:
+        pass
     orig_Linear_forward = torch.nn.Linear.forward
     torch.nn.Linear.forward = h_Linear_forward
 
@@ -454,6 +433,7 @@ class LoRARegioner:
 
     def te_start(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
+        if self.mlist == {}: return
         self.te_count += 1
         import lora
         for i in range(len(lora.loaded_loras)):
@@ -464,6 +444,7 @@ class LoRARegioner:
     def u_start(self):
         if labug : print("u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
         self.mlist = self.u_llist[self.u_count % len(self.u_llist)]
+        if self.mlist == {}: return
         self.u_count  += 1
 
         stopstep = self.stop_hr if in_hr else self.stop
@@ -506,7 +487,7 @@ def h_Linear_forward(self, input):
         if shared.opts.lora_functional:
             return networks.network_forward(self, input, networks.originals.Linear_forward)
         networks.network_apply_weights(self)
-        return torch.nn.Linear_forward_before_network(self, input)
+        return networks.originals.Linear_forward(self, input)
 
 def changethelora(name):
     if lactive:
@@ -517,9 +498,16 @@ def changethelora(name):
             regioner.u_start()
 
 LORAANDSOON = {
+    "LoraHadaModule" : "w1a",
+    "LycoHadaModule" : "w1a",
+    "NetworkModuleHada": "w1a",
+    "FullModule" : "weight",
+    "NetworkModuleFull": "weight",
     "IA3Module" : "w",
+    "NetworkModuleIa3" : "w",
     "LoraKronModule" : "w1",
     "LycoKronModule" : "w1",
+    "NetworkModuleLokr": "w1",
 }
 
 def changethedevice(module):
@@ -533,7 +521,7 @@ def changethedevice(module):
             if hasattr(module.down, "weight"):
                 module.down.weight = torch.nn.Parameter(module.down.weight.to(devices.device, dtype=torch.float))
         
-    elif ltype == "LoraHadaModule" or ltype == "LycoHadaModule":
+    elif ltype == "LoraHadaModule" or ltype == "LycoHadaModule" or ltype == "NetworkModuleHada":
         module.w1a = torch.nn.Parameter(module.w1a.to(devices.device, dtype=torch.float))
         module.w1b = torch.nn.Parameter(module.w1b.to(devices.device, dtype=torch.float))
         module.w2a = torch.nn.Parameter(module.w2a.to(devices.device, dtype=torch.float))
@@ -545,31 +533,21 @@ def changethedevice(module):
         if module.t2 is not None:
             module.t2 = torch.nn.Parameter(module.t2.to(devices.device, dtype=torch.float))
         
-    elif ltype == "FullModule":
+    elif ltype == "FullModule" or ltype == "NetworkModuleFull":
         module.weight = torch.nn.Parameter(module.weight.to(devices.device, dtype=torch.float))
     
     if hasattr(module, 'bias') and module.bias != None:
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
-
-def restoremodel(p):
-    model = p.sd_model
-    for name, module in model.named_modules():
-        if hasattr(module, "lora_weights_backup"):
-            if module.lora_weights_backup is not None:
-                if isinstance(module, torch.nn.MultiheadAttention):
-                    module.in_proj_weight.copy_(module.lora_weights_backup[0])
-                    module.out_proj.weight.copy_(module.lora_weights_backup[1])
-                else:
-                    module.weight.copy_(module.lora_weights_backup)
-                module.lora_weights_backup = None
-                module.lora_current_names = None
-
 def unloadlorafowards(p):
     global orig_Linear_forward, lactive, labug
     lactive = labug = False
-    shared.opts.lora_functional =  orig_lora_functional
-
+        
+    try:
+        shared.opts.lora_functional =  orig_lora_functional
+    except:
+        pass
+    
     import lora
     lora.loaded_loras.clear()
     if orig_Linear_forward != None :
