@@ -6,8 +6,8 @@
 - [AUTOMATIC1111's stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui) 用のスクリプトです
 - 垂直/平行方向に分割された領域ごとに異なるプロンプトを指定できます
 
-## Language control / 言語制御
-日本語: [![jp](https://img.shields.io/badge/lang-jp-green.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
+[<img src="https://img.shields.io/badge/言語-日本語-green.svg?style=plastic" height="25" />](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
+[<img src="https://img.shields.io/badge/Support-%E2%99%A5-magenta.svg?logo=github&style=plastic" height="25" />](https://github.com/sponsors/hako-mikan)
 
 ## for LoHa, LoCon users 
 **About LoRA/LoCon/LoHa**  
