@@ -681,7 +681,9 @@ def tokendealer(self, p):
     text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
     text = prompt_parser.get_learned_conditioning_prompt_schedules([text],p.steps)[0][0][1]
     ppl = text.split(seps)
-    npl = p.all_negative_prompts[0].split(seps)
+    ntext, _ = extra_networks.parse_prompt(p.all_negative_prompts[0]) 
+    npl = ntext.split(seps)
+    eqb = len(ppl) == len(npl)
     targets =[p.split(",")[-1] for p in ppl[1:]]
     pt, nt, ppt, pnt, tt = [], [], [], [], []
 
@@ -717,7 +719,7 @@ def tokendealer(self, p):
         pnt.append(tokensnum)
         padd = tokensnum // TOKENS + 1 + padd
 
-    self.eq = paddp == padd
+    self.eq = paddp == padd and eqb
 
     self.pt = pt
     self.nt = nt
