@@ -36,12 +36,12 @@ def setuploras(self):
     try:
         if 150 <= self.ui_version <= 159 or self.slowlora:
             shared.opts.lora_functional = False
-            is15 = True
         else:
             shared.opts.lora_functional = True
-            is15 = False
     except:
         pass
+
+    is15 = 150 <= self.ui_version <= 159
     orig_Linear_forward = torch.nn.Linear.forward
     torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
 
