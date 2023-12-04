@@ -36,12 +36,14 @@ def setuploras(self):
     try:
         if 150 <= self.ui_version <= 159 or self.slowlora:
             shared.opts.lora_functional = False
+            is15 = True
         else:
             shared.opts.lora_functional = True
+            is15 = False
     except:
         pass
     orig_Linear_forward = torch.nn.Linear.forward
-    torch.nn.Linear.forward = h_Linear_forward
+    torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -488,6 +490,18 @@ def h_Linear_forward(self, input):
             return networks.network_forward(self, input, networks.originals.Linear_forward)
         networks.network_apply_weights(self)
         return networks.originals.Linear_forward(self, input)
+
+def h15_Linear_forward(self, input):
+    changethelora(getattr(self, layer_name, None))
+    if islora:
+        import lora
+        return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
+    else:
+        import networks
+        if shared.opts.lora_functional:
+            return networks.network_forward(self, input, networks.network_Linear_forward)
+        networks.network_apply_weights(self)
+        return torch.nn.Linear_forward_before_network(self, input)
 
 def changethelora(name):
     if lactive:
