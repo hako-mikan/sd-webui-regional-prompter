@@ -5,7 +5,7 @@ from pprint import pprint
 import re
 from typing import Union
 import torch
-from modules import devices, shared, extra_networks
+from modules import devices, shared, extra_networks, sd_hijack
 from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
@@ -561,8 +561,14 @@ def unloadlorafowards(p):
         shared.opts.lora_functional =  orig_lora_functional
     except:
         pass
-    
+
+    emb_db = sd_hijack.model_hijack.embedding_db
     import lora
+    for net in lora.loaded_loras:
+        for emb_name, embedding in net.bundle_embeddings.items():
+            if embedding.loaded:
+                emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
+
     lora.loaded_loras.clear()
     if orig_Linear_forward != None :
         torch.nn.Linear.forward = orig_Linear_forward
