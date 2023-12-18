@@ -565,9 +565,10 @@ def unloadlorafowards(p):
     emb_db = sd_hijack.model_hijack.embedding_db
     import lora
     for net in lora.loaded_loras:
-        for emb_name, embedding in net.bundle_embeddings.items():
-            if embedding.loaded:
-                emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
+        if hasattr(net,"bundle_embeddings"):
+            for emb_name, embedding in net.bundle_embeddings.items():
+                if embedding.loaded:
+                    emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
 
     lora.loaded_loras.clear()
     if orig_Linear_forward != None :
