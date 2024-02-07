@@ -37,7 +37,11 @@ OPTUSEL = "Use LoHa or other"
 PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
 
-
+try:
+    from ldm_patched.modules import model_management
+    forge = True
+except:
+    forge = False
 
 def lange(l):
     return range(len(l))
@@ -454,6 +458,7 @@ class Script(modules.scripts.Script):
 
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
+        if forge: self.isvanilla = not self.isvanilla
 
         if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
             # Testing shows a round down occurs in model.
@@ -587,9 +592,8 @@ class Script(modules.scripts.Script):
     def denoiser_callback(self, params: CFGDenoiserParams):
         denoiser_callback_s(self, params)
 
-    def denoised_callback(self, params: CFGDenoisedParams):
+    def denoised_callback(self, params):
         denoised_callback_s(self, params)
-
 
 def unloader(self,p):
     if hasattr(self,"handle"):

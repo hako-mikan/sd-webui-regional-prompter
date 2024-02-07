@@ -25,6 +25,12 @@ MINID = 1000
 MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
 
+try:
+    from ldm_patched.modules import model_management
+    forge = True
+except:
+    forge = False
+
 def setuploras(self):
     global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
     lactive = True
@@ -484,6 +490,8 @@ def h_Linear_forward(self, input):
     if islora:
         import lora
         return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
+    elif forge:
+        return orig_Linear_forward(self, input)
     else:
         import networks
         if shared.opts.lora_functional:

@@ -26,7 +26,12 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
         pass
     else: # SBM I think divide may be redundant.
         h = h // divide
+
     q = module.to_q(x)
+
+    _, _, dim_head = q.shape
+    dim_head //= h
+    scale = dim_head ** -0.5
 
     context = atm.default(context, x)
     k = module.to_k(context)
@@ -34,7 +39,7 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
     q, k, v = map(lambda t: atm.rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
-    sim = atm.einsum('b i d, b j d -> b i j', q, k) * module.scale
+    sim = atm.einsum('b i d, b j d -> b i j', q, k) * scale
 
     if negpip:
         conds, contokens = negpip
@@ -97,7 +102,7 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
 ##### Attention mode 
 
 def hook_forward(self, module):
-    def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0):
+    def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None):
         if self.debug:
             print("input : ", x.size())
             print("tokens : ", context.size())
@@ -520,7 +525,7 @@ def savepmasks(self,processed):
         processed.images.append(img)
     return processed
 
-def hiresscaler(new_h,new_w,attn):
+def hiresscaler(new_h,new_w,attn, head):
     global pmaskshw,pmasks,pmasksf,pmaskshw_o, hiresfinished
     nset = (new_h,new_w)
     (old_h, old_w) = pmaskshw[0]
@@ -528,19 +533,19 @@ def hiresscaler(new_h,new_w,attn):
         pmaskshw_o = pmaskshw.copy()
         del pmaskshw
         pmaskshw = [nset]
-        hiresmask(pmasks,old_h, old_w, new_h, new_w,at = attn[:,:,0])
-        hiresmask(pmasksf,old_h, old_w, new_h, new_w,i = 0)
+        hiresmask(pmasks,old_h, old_w, new_h, new_w,head,at = attn[:,:,0])
+        hiresmask(pmasksf,old_h, old_w, new_h, new_w,head,i = 0)
     if nset not in pmaskshw:
         index = len(pmaskshw)
         pmaskshw.append(nset)
         old_h, old_w = pmaskshw_o[index]
-        hiresmask(pmasksf,old_h, old_w, new_h, new_w,i = index)
+        hiresmask(pmasksf,old_h, old_w, new_h, new_w,head,i = index)
         if index == 3: hiresfinished = True
 
-def hiresmask(masks,oh,ow,nh,nw,at = None,i = None):
+def hiresmask(masks,oh,ow,nh,nw,head,at = None,i = None):
     for key in masks.keys():
         mask = masks[key] if i is None else masks[key][i]
-        mask = mask.view(8 if i is None else 1,oh,ow)
+        mask = mask.view(head if i is None else 1,oh,ow)
         mask = F.resize(mask,(nh,nw))
         mask = mask.reshape_as(at) if at is not None else mask.reshape(1,mask.shape[1] * mask.shape[2],1)
         if i is None:
