@@ -20,6 +20,7 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     if negpip:
         conds, contokens = negpip
         context = torch.cat((context,conds),1)
+        context = context.to(x.dtype)
 
     h = module.heads
     if isvanilla: # SBM Ddim / plms have the context split ahead along with x.
