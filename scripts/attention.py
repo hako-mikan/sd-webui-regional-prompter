@@ -103,7 +103,7 @@ def hook_forwards(self, root_module: torch.nn.Module, remove=False):
 ##### Attention mode 
 
 def hook_forward(self, module):
-    def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None):
+    def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None, transformer_options=None):
         if self.debug:
             print("input : ", x.size())
             print("tokens : ", context.size())
