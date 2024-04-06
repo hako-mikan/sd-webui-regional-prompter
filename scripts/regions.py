@@ -175,12 +175,6 @@ def split_l2(s, kr, kc, indsingles = False, fmap = fidentity, basestruct = None,
 def is_l2(l):
     return isinstance(l[0],list) 
 
-def l2_count(l):
-    cnt = 0
-    for row in l:
-        cnt + cnt + len(row)
-    return cnt
-
 def list_percentify(l):
     """Convert each row in L2 to relative part of 100%. 
     
@@ -358,13 +352,13 @@ def matrixdealer(self, p, aratios, bratios, mode):
     # In any case, the preferred method will anchor the L2 structure. 
     # No prompt formatting is performed. Used only for region calculations
     prompt = p.prompt
+    if self.optbreak:prompt = prompt.replace(KEYBRK, "")
     if self.debug: print("in matrixdealer",prompt)
     if KEYCOMM in prompt: prompt = prompt.split(KEYCOMM,1)[1]
     if KEYBASE in prompt: prompt = prompt.split(KEYBASE,1)[1]
 
     indflip = ("Ver" in mode)
     if (KEYCOL in prompt.upper() or KEYROW in prompt.upper()):
-        breaks = prompt.count(KEYROW) + prompt.count(KEYCOL) + int(self.usebase)
         # Prompt anchors, count breaks between special keywords.
         lbreaks = split_l2(prompt, KEYROW, KEYCOL, fmap = fcountbrk, indflip = indflip)
         if (DELIMROW not in aratios
@@ -387,16 +381,11 @@ def matrixdealer(self, p, aratios, bratios, mode):
         # More like "bweights", applied per cell only.
         bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
     else:
-        breaks = prompt.count(KEYBRK) + int(self.usebase)
         (aratios2r,aratios2) = split_l2(aratios, DELIMROW, DELIMCOL, indsingles = True, fmap = ffloatd(1), indflip = indflip)
         # Cannot determine which breaks matter.
         lbreaks = split_l2("0", KEYROW, KEYCOL, fmap = fint, basestruct = aratios2, indflip = indflip)
         bratios2 = split_l2(bratios, DELIMROW, DELIMCOL, fmap = ffloatd(0), basestruct = lbreaks, indflip = indflip)
         # If insufficient breaks, try to broadcast prompt - a bit dumb.
-        breaks = fcountbrk(prompt)
-        lastprompt = prompt.rsplit(KEYBRK)[-1]
-        if l2_count(aratios2) > breaks: 
-            prompt = prompt + (fspace(KEYBRK) + lastprompt) * (l2_count(aratios2) - breaks) 
     (aratios,aratiosr) = ratiosdealer(aratios2,aratios2r)
     bratios = bratios2 
     
@@ -766,6 +755,7 @@ def create_canvas(h, w, indwipe = True):
 # If there's a base, it will receive its own remainder mask, applied at 100%.
 def inpaintmaskdealer(self, p, bratios, usebase, polymask):
     prompt = p.prompt
+    if self.optbreak:prompt = prompt.replace(KEYBRK, "")
     if self.debug: print("in inpaintmaskdealer",prompt)
     if KEYCOMM in prompt: prompt = prompt.split(KEYCOMM,1)[1]
     if KEYBASE in prompt: prompt = prompt.split(KEYBASE,1)[1]
