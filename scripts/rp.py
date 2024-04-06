@@ -518,11 +518,13 @@ class Script(modules.scripts.Script):
             denoiserdealer(self)
 
         neighbor(self,p)                                                    #detect other extention
+        if self.optbreak: allchanger(p,KEYBRK,KEYBRK_R)
         keyreplacer(self, p)                                                      #replace all keys to BREAK
         blankdealer(self, p)                                               #add "_" if prompt of last region is blank
         commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
         if "La" in self.calc: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
+        if self.optbreak: allchanger(p,KEYBRK_R,KEYBRK)
         thresholddealer(self, p, threshold)                          #set threshold
         
         bratioprompt(self, bratios)
@@ -562,6 +564,8 @@ class Script(modules.scripts.Script):
             # SBM Before_process_batch was added in feb-mar, adding fallback.
             if not hasattr(self,"current_prompts"):
                 self.current_prompts = kwargs["prompts"].copy()
+
+            if self.debug : print(self.current_prompts)
 
             p.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
             p.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size] = self.all_negative_prompts[p.iteration * p.batch_size:(p.iteration + 1) * p.batch_size]
@@ -1123,10 +1127,6 @@ def keyreplacer(self,p):
     replace all separators to BREAK
     p.all_prompt and p.all_negative_prompt
     '''
-    if self.optbreak:
-        p.prompt = p.all_prompts[0] = p.all_prompts[0].replace(KEYBRK,KEYBRK_R)
-        p.negative_prompt = p.all_negative_prompts[0] = p.all_negative_prompts[0].replace(KEYBRK,KEYBRK_R)
-
     for key in ALLKEYS:
         for i in lange(p.all_prompts):
             p.all_prompts[i]= p.all_prompts[i].replace(key,KEYBRK)
