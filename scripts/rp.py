@@ -404,7 +404,7 @@ class Script(modules.scripts.Script):
         if type(polymask) == str:
             image = None
             try:
-                image = draw_image(np.array(Image.open(polymask)))
+                image = Image.open(polymask)
             except:
                 if polymask.startswith("data:image/"):
                     polymask = polymask.split(";")[1].split(",")[1]
