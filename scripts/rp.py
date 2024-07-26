@@ -407,7 +407,7 @@ class Script(modules.scripts.Script):
                 image = Image.open(polymask)
             except:
                 if polymask.startswith("data:image/"):
-                    polymask = polymask.split(";")[1].split(",")[1]
+                    polymask = polymask.split(";", maxsplit=1)[1].split(",", maxsplit=1)[1]
                 try:
                     image = Image.open(BytesIO(base64.b64decode(polymask)))
                 except:
