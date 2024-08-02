@@ -412,11 +412,8 @@ class Script(modules.scripts.Script):
                     image = Image.open(BytesIO(base64.b64decode(polymask)))
                 except:
                     print("Error: The mask image is either not a valid path or not a valid base64 encoded image.")
-            try:
-                if image is not None:
-                    polymask,_,_ = draw_image(np.array(image))
-            except:
-                pass
+            if image is not None:
+                polymask,_,_ = draw_image(np.array(image.convert('RGB')))
         
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
 
