@@ -40,7 +40,7 @@ PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
 
 try:
-    from ldm_patched.modules import model_management
+    from scripts.ldm_patched.modules import model_management
     forge = True
 except:
     forge = False
@@ -499,14 +499,14 @@ class Script(modules.scripts.Script):
     
             ##### calcmode 
             if "Att" in calcmode:
-                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+                self.handle = hook_forwards(self, p.sd_model.forge_objects.unet.model.diffusion_model)
                 if hasattr(shared.opts,"batch_cond_uncond"):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
                 unloadlorafowards(p)
             else:
-                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
+                self.handle = hook_forwards(self, p.sd_model.forge_objects.unet.model.diffusion_model,remove = True)
                 setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
@@ -514,7 +514,7 @@ class Script(modules.scripts.Script):
         elif "Pro" in self.mode: #Prompt mode use both calcmode
             self.ex = "Ex" in self.mode
             if not usebase : bratios = "0"
-            self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+            self.handle = hook_forwards(self, p.sd_model.forge_objects.unet.model.diffusion_model)
             denoiserdealer(self)
 
         neighbor(self,p)                                                    #detect other extention
@@ -608,7 +608,7 @@ class Script(modules.scripts.Script):
 def unloader(self,p):
     if hasattr(self,"handle"):
         #print("unloaded")
-        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
+        hook_forwards(self, p.sd_model.forge_objects.unet.model.diffusion_model, remove=True)
         del self.handle
 
     self.__init__()
@@ -711,7 +711,7 @@ def tokendealer(self, p):
 
     padd = 0
     
-    tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
+    tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.text_processing_engine_l.tokenize_line
 
     for pp in ppl:
         tokens, tokensnum = tokenizer(pp)

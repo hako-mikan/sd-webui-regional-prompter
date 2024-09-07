@@ -1,6 +1,6 @@
 import math
 from pprint import pprint
-import ldm.modules.attention as atm
+import scripts.ldm_patched.ldm.modules.attention as atm
 import torch
 import torchvision
 import torchvision.transforms.functional as F
@@ -61,7 +61,7 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
     global pmaskshw,pmasks
 
-    if inhr and not hiresfinished: hiresscaler(height,width,attn)
+    if inhr and not hiresfinished: hiresscaler(height,width,attn,h)
 
     if userpp and step > 0:
         for b in range(attn.shape[0] // 8):

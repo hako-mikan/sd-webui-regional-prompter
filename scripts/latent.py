@@ -26,7 +26,7 @@ MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
 
 try:
-    from ldm_patched.modules import model_management
+    from scripts.ldm_patched.modules import model_management
     forge = True
 except:
     forge = False
@@ -570,7 +570,8 @@ def unloadlorafowards(p):
     except:
         pass
 
-    emb_db = sd_hijack.model_hijack.embedding_db
+    from modules import ui_extra_networks_textual_inversion
+    emb_db = ui_extra_networks_textual_inversion.embedding_db
     import lora
     for net in lora.loaded_loras:
         if hasattr(net,"bundle_embeddings"):

@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Vertical-3",
+    "mode": "Vertical",
+    "ratios": "1,1,1",
+    "baseratios": "",
+    "usebase": false,
+    "usecom": false,
+    "usencom": false,
+    "calcmode": "Attention",
+    "nchangeand": false,
+    "lnter": "0",
+    "lnur": "0"
+  },
+  {
+    "name": "Horizontal-3",
+    "mode": "Horizontal",
+    "ratios": "1,1,1",
+    "baseratios": "",
+    "usebase": false,
+    "usecom": false,
+    "usencom": false,
+    "calcmode": "Attention",
+    "nchangeand": false,
+    "lnter": "0",
+    "lnur": "0"
+  },
+  {
+    "name": "Horizontal-7",
+    "mode": "Horizontal",
+    "ratios": "1,1,1,1,1,1,1",
+    "baseratios": "0.2",
+    "usebase": true,
+    "usecom": false,
+    "usencom": false,
+    "calcmode": "Attention",
+    "nchangeand": false,
+    "lnter": "0",
+    "lnur": "0"
+  },
+  {
+    "name": "Twod-2-1",
+    "mode": "Horizontal",
+    "ratios": "1,2,3;1,1",
+    "baseratios": "0.2",
+    "usebase": false,
+    "usecom": false,
+    "usencom": false,
+    "calcmode": "Attention",
+    "nchangeand": false,
+    "lnter": "0",
+    "lnur": "0"
+  },
+  {
+    "name": "lastrun",
+    "mode": "Prompt-Ex",
+    "ratios": "1,1",
+    "baseratios": "0.2",
+    "usebase": true,
+    "usecom": true,
+    "usencom": false,
+    "calcmode": "Latent",
+    "nchangeand": [
+      false,
+      "disable convert 'AND' to 'BREAK'"
+    ],
+    "lnter": "0",
+    "lnur": "0",
+    "threshold": "0.4",
+    "polymask": null
+  }
+]
