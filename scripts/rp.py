@@ -29,6 +29,8 @@ from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMP
                              create_canvas, draw_region, #detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask, changecs,
                              floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
+from io import BytesIO
+import base64
 
 KEYBRK_R = "RP_TEMP_REPLACE"
 FLJSON = "regional_prompter_presets.json"
@@ -400,10 +402,18 @@ class Script(modules.scripts.Script):
         self.slowlora = OPTUSEL in options
 
         if type(polymask) == str:
+            image = None
             try:
-                polymask,_,_ = draw_image(np.array(Image.open(polymask)))
+                image = Image.open(polymask)
             except:
-                pass
+                if polymask.startswith("data:image/"):
+                    polymask = polymask.split(";", maxsplit=1)[1].split(",", maxsplit=1)[1]
+                try:
+                    image = Image.open(BytesIO(base64.b64decode(polymask)))
+                except:
+                    print("Error: The mask image is either not a valid path or not a valid base64 encoded image.")
+            if image is not None:
+                polymask,_,_ = draw_image(np.array(image.convert('RGB')))
         
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
 
