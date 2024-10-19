@@ -100,8 +100,8 @@ def ui_tab(mode, submode, eladd):
         with gr.Row(): # Creep: Placeholder, should probably make this invisible.
             xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True,elem_id="RP_mask_mode" + eladd)
         with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
-            polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask" + eladd,
-                                source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
+            polymask = gr.ImageEditor(label = "Do not upload here until bugfix",elem_id="polymask" + eladd,
+                                source = "upload", mirror_webcam = False, type = "numpy", brush = gr.Brush(colors=["#000000"]))#.style(height=480)
         with gr.Row():
             with gr.Column():
                 num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region" + eladd)
@@ -111,7 +111,7 @@ def ui_tab(mode, submode, eladd):
                 # btn2 = gr.Button(value = "Display mask") # Not needed.
                 cbtn = gr.Button(value="Create mask area")
             with gr.Column():
-                showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
+                showmask = gr.ImageEditor(label = "Mask", height = IDIM, width = IDIM)
                 # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
                 uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
         # btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
