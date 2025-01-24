@@ -50,7 +50,7 @@ You can specify the step at which to stop applying LoRA. By stopping around 10 s
 
 
 # Overview
-Latent couple extention performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here(Japanese)](https://note.com/gcem156/n/nb3d516e376d7) for details. Thanks to furusu for initiating the idea. Additional, Latent mode also supported.
+Latent couple extension performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here(Japanese)](https://note.com/gcem156/n/nb3d516e376d7) for details. Thanks to furusu for initiating the idea. Additional, Latent mode also supported.
 
 ## index
 - [2D regions](#2D)
@@ -81,7 +81,7 @@ Base Ratio :
 This setting divides the image vertically into three parts and applies the prompts "green hair twintail" ,"red blouse" ,"blue skirt", from top to bottom in order.
 
 ### Active  
-This extention is enabled only if "Active" is toggled.
+This extension is enabled only if "Active" is toggled.
 
 ### Prompt
 Prompts for different regions are separated by `BREAK` keywords. 
