@@ -21,6 +21,12 @@ LoRAの種類別の使用条件です。
 - **LoRA**: 速度低下なく適用可能です。
 - **LoCon/LoHa**: "Use LoHa or other" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。
 
+## Updates 2025.01.27.0100 (JST)  
+- Fixed several bugs (related to Forge)  
+- Added support for Latent Mode and region-specific LoRA in Forge (only basic LoRA has been tested so far).  
+- いくつかのバグフィックス(Forge関連)
+- ForgeにおいてLatentモード対応、領域別LoRA対応（基本的なLoRAしか試してません。）
+
 ### Updates
 - モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
 (日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
