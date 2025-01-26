@@ -1,10 +1,26 @@
 import math
 from pprint import pprint
-import ldm.modules.attention as atm
 import torch
 import torchvision
 import torchvision.transforms.functional as F
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
+from inspect import isfunction
+from torch import nn, einsum
+from einops import rearrange, repeat
+
+try:
+    import ldm.modules.attention as atm
+    forge = False
+except:
+    forge = True
+    from backend.diffusion_engine.base import ForgeDiffusionEngine, ForgeObjects
+    from backend.nn.flux import attention, fp16_fix
+
+try:
+    from modules.ui import versions_html
+    reforge = "reForge" in versions_html()
+except:
+    reforge = False
 
 TOKENSCON = 77
 TOKENS = 75
@@ -12,6 +28,15 @@ TOKENS = 75
 def db(self,text):
     if self.debug:
         print(text)
+
+# helper functions from LDM
+def exists(val):
+    return val is not None
+
+def default(val, d):
+    if exists(val):
+        return val
+    return d() if isfunction(d) else d
 
 def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False, negpip = None, inhr = None):
     
@@ -34,13 +59,13 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     dim_head //= h
     scale = dim_head ** -0.5
 
-    context = atm.default(context, x)
+    context = default(context, x)
     k = module.to_k(context)
     v = module.to_v(context)
 
-    q, k, v = map(lambda t: atm.rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
+    q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
-    sim = atm.einsum('b i d, b j d -> b i j', q, k) * scale
+    sim = einsum('b i d, b j d -> b i j', q, k) * scale
 
     if negpip:
         conds, contokens = negpip
@@ -49,10 +74,10 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
                 start = (v.shape[1]//77 - len(contokens)) * 77
                 v[:,start+1:start+contoken,:] = -v[:,start+1:start+contoken,:] 
 
-    if atm.exists(mask):
-        mask = atm.rearrange(mask, 'b ... -> b (...)')
+    if exists(mask):
+        mask = rearrange(mask, 'b ... -> b (...)')
         max_neg_value = -torch.finfo(sim.dtype).max
-        mask = atm.repeat(mask, 'b j -> (b h) () j', h=h)
+        mask = repeat(mask, 'b j -> (b h) () j', h=h)
         sim.masked_fill_(~mask, max_neg_value)
 
     attn = sim.softmax(dim=-1)
@@ -85,13 +110,19 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
                     pmasks[t] = pmasks[t] + add
 
-    out = atm.einsum('b i j, b j d -> b i d', attn, v)
-    out = atm.rearrange(out, '(b h) n d -> b n (h d)', h=h)
+    out = einsum('b i j, b j d -> b i d', attn, v)
+    out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
     out = module.to_out(out)
 
     return out
 
-def hook_forwards(self, root_module: torch.nn.Module, remove=False):
+def hook_forwards(self, p, remove=False):
+    if forge:
+        self.handle = hook_forwards_x(self, p.sd_model.forge_objects.unet.model, remove) 
+    else:
+        self.handle = hook_forwards_x(self, p.sd_model.model.diffusion_model, remove)
+
+def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
     self.hooked = True if not remove else False
     for name, module in root_module.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":

@@ -1,9 +1,5 @@
-from difflib import restore
-import random
 import copy
 from pprint import pprint
-import re
-from typing import Union
 import torch
 from modules import devices, shared, extra_networks, sd_hijack
 from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
@@ -11,6 +7,18 @@ from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
 from scripts.regions import floatdef
 from scripts.attention import makerrandman
+
+try:
+    from modules.ui import versions_html
+    forge = "forge" in versions_html()
+    reforge = "reForge" in versions_html()
+except:
+    reforge = False
+
+if forge:
+    from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg
+
+denoised_params = AfterCFGCallbackParams if forge else CFGDenoisedParams
 
 islora = True
 in_hr = False
@@ -24,12 +32,6 @@ labug =False
 MINID = 1000
 MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
-
-try:
-    from ldm_patched.modules import model_management
-    forge = True
-except:
-    forge = False
 
 def setuploras(self):
     global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
@@ -50,6 +52,15 @@ def setuploras(self):
     is15 = 150 <= self.ui_version <= 159
     orig_Linear_forward = torch.nn.Linear.forward
     torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
+
+    if forge:
+        shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
+        from backend import args
+        args.dynamic_args["online_lora"] = True
+
+        for name, module in shared.sd_model.forge_objects.clip.cond_stage_model.clip_l.named_modules():
+            if name == "transformer.text_model.encoder.layers.0.self_attn.q_proj":
+                module.forward = forge_linear_forward.__get__(module)
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -77,9 +88,11 @@ def cloneparams(orig,target):
 # [Batch2-Area2, Batch2-Area3] -> [Batch1-Area3, Batch2-Area3] 
 
 def denoiser_callback_s(self, params: CFGDenoiserParams):
+    self.step = params.sampling_step
+    self.total_step = params.total_sampling_steps
+
     if "Pro" in self.mode:  # in Prompt mode, make masks from sum of attension maps
         if self.x == None : cloneparams(params,self) # return to step 0 if mask is ready
-        self.step = params.sampling_step
         self.pfirst = True
 
         lim = 1 if self.isxl else 3
@@ -142,6 +155,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         st =  params.sigma.clone()
         batch = self.batch_size
         areas = xt.shape[0] // batch -1
+        if forge: return
         # SBM Stale version workaround.
         if hasattr(params,"text_cond"):
             if "DictWithShape" in params.text_cond.__class__.__name__:
@@ -164,11 +178,49 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                     else:
                         params.text_cond[b+a*batch] = ct[a + b * areas]
 
-def denoised_callback_s(self, params: CFGDenoisedParams):
-    batch = self.batch_size
-    x = params.x
-    xt = params.x.clone()
-    areas = xt.shape[0] // batch - 1
+def denoised_callback_s(p1, p2 = None, p3 = None):
+    # if forge p1: model.apply(), p2: params, p3: script
+    # if A1111 p1: script, p2: DenoisedParams, p3: None
+    if p3 is not None:
+        self = p3      
+        input_x = p2["input"]
+        timestep = p2["timestep"]
+        cond_or_uncond = p2["cond_or_uncond"]
+        c = p2["c"]
+        conds = c["c_crossattn"]
+        y = c["y"] if "y" in c else None
+
+        if not self.active:
+            return p1(input_x, timestep, **c)
+        
+        length = len(cond_or_uncond)
+        batch = input_x.shape[0] // length
+
+        cond_or_uncond = cond_or_uncond * batch
+
+        region_list, orig_list = forge_make_chenge_list(batch, length)
+
+        outs = []
+        for i in range(length):
+            regioner.set_region(i)
+            c["c_crossattn"] = conds[i*batch:i*batch+batch]
+            if y is not None:
+                c["y"] = y[i*batch:i*batch+batch]
+            outs.append(p1(input_x[i*batch:i*batch+batch], torch.cat([timestep[i:i+1]]*batch), **c))
+
+        output = torch.cat(outs)
+
+        x = output[region_list]
+        xt = x.clone()
+        areas = length - 1
+    else:
+        self = p1
+        params = p2
+
+        batch = self.batch_size
+        x = params.x
+        xt = params.x.clone()
+        areas = xt.shape[0] // batch - 1
 
     if "La" in self.calc:
         # x.shape = [batch_size, C, H // 8, W // 8]
@@ -193,7 +245,10 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
             if not att.maskready:
                 self.filters = [1,*[0 for a in range(areas - 1)]] * batch
 
-        if self.debug : print("filterlength : ",len(self.filters))
+        if self.debug: 
+            print("filterlength : ",len(self.filters))
+            print("x : ",x.shape)
+            print("areas : ",areas)
 
         for b in range(batch):
             for a in range(areas) :
@@ -201,7 +256,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                 if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
                 x[a + b * areas, :, :, :] =  xt[b + a*batch, :, :, :] * fil + x[x.size()[0]+(b-batch), :, :, :] * (1 - fil)
 
-    if params.total_sampling_steps == params.sampling_step + 2:
+    if self.total_step == self.step + 2:
         if self.rps is not None and self.diff:
             if self.rps.latent is None:
                 self.rps.latent = x.clone()
@@ -232,7 +287,7 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                         #print("2",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
-    if params.sampling_step == 0 and self.in_hr:
+    if self.step == 0 and self.in_hr:
         if self.rps is not None and self.diff:
             if self.rps.latent is not None:
                 if self.rps.latent.shape[2:] != x.shape[2:] and self.rps.latent_hr is None: return
@@ -243,6 +298,30 @@ def denoised_callback_s(self, params: CFGDenoisedParams):
                         if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
                         #print("3",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
+
+            
+    if p3 is not None: #forge
+        out = x[orig_list]
+        return out
+
+def forge_make_chenge_list(batch, length):
+    orig = [x for x in range(batch*length)]
+
+    chunks_1 = [orig[i:i + batch] for i in range(0, len(orig), batch)]
+    chunks_2 = [[(i) + (length - 1) * x for x in range(batch)] for i in range(length)]
+    
+    out1, out2, = [], []
+
+    for c1 in chunks_1[::-1]:
+        out1.extend(c1)
+    
+    out2.extend(chunks_1[-1])
+    
+    for c2 in chunks_2[:-1][::-1]:
+        out2.extend(c2)
+
+    return out1, out2
+
 
 ######################################################
 ##### Latent Method
@@ -262,9 +341,12 @@ def lora_namer(self, p, lnter, lnur):
     ldict_te = {}
     lorder = [] # Loras call order for matching with u/te lists.
     import lora as loraclass
+    name_to_hash = {}
     for lora in loraclass.loaded_loras:
         ldict_u[lora.name] =lora.multiplier if self.isbefore15 else lora.unet_multiplier
         ldict_te[lora.name] =lora.multiplier  if self.isbefore15 else lora.te_multiplier
+        name_to_hash[lora.network_on_disk.alias] = lora.network_on_disk.filename
+        name_to_hash[lora.network_on_disk.name] = lora.network_on_disk.filename
     
     subprompts = self.current_prompts[0].split("AND")
     ldictlist_u =[ldict_u.copy() for i in range(len(subprompts)+1)]
@@ -278,7 +360,7 @@ def lora_namer(self, p, lnter, lnur):
         tdict = {}
 
         for called in calledloras:
-            names = names + called.items[0]
+            names = names + name_to_hash[called.items[0]] if forge else names + called.items[0]
             tdict[called.items[0]] = syntaxdealer(called.items,"unet=",1)
 
         for key in ldictlist_u[i].keys():
@@ -479,7 +561,46 @@ class LoRARegioner:
     def reset(self):
         self.te_count = 0
         self.u_count = 0
-    
+
+    def te_start_f(self):
+        self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
+        if self.mlist == {}: return
+        self.te_count += 1
+        
+        if labug:
+            print(f"Set LoRA for Region {self.te_count % len(self.te_llist)}, u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
+            print(self.mlist)
+
+        lora_lorader = shared.sd_model.forge_objects.clip.patcher.lora_loader
+        lora_patches = shared.sd_model.forge_objects.clip.patcher.lora_patches
+        offload_device = shared.sd_model.forge_objects.clip.patcher.offload_device
+
+        for lora_key, patch in lora_patches.items():
+            for key in patch:
+                if lora_key in self.mlist:
+                    patch[key][0][0] = self.mlist[lora_key]
+
+        refresh(lora_lorader, lora_patches=lora_patches, offload_device=offload_device)
+
+    def set_region(self, region):
+        self.mlist = self.u_llist[region]
+        if labug:
+            print(f"Set LoRA for Region {region}, u_count",self.u_count ,"u_count '%' divide",  self.u_count % len(self.u_llist))
+            print(self.mlist)
+        if self.mlist == {}: return
+ 
+        stopstep = self.stop_hr if in_hr else self.stop
+
+        for name, module in shared.sd_model.forge_objects.unet.model.named_modules():
+            patches = getattr(module, 'forge_online_loras', None)
+            weight_patches, bias_patches = None, None
+            if patches is not None:
+                weight_patches = patches.get('weight', None)
+                if weight_patches:
+                    strengths = list(self.mlist.values())
+                    for i in range(len(strengths)):
+                        weight_patches[i][0] = strengths[i]
+
 regioner = LoRARegioner()
 
 ############################################################
@@ -510,6 +631,17 @@ def h15_Linear_forward(self, input):
             return networks.network_forward(self, input, networks.network_Linear_forward)
         networks.network_apply_weights(self)
         return torch.nn.Linear_forward_before_network(self, input)
+
+def forge_linear_forward(self, x):
+    regioner.te_start_f()
+    from backend import operations as op
+    if self.parameters_manual_cast:
+        weight, bias, signal = op.weights_manual_cast(self, x)
+        with op.main_stream_worker(weight, bias, signal):
+            return torch.nn.functional.linear(x, weight, bias)
+    else:
+        weight, bias = op.get_weight_and_bias(self)
+        return torch.nn.functional.linear(x, weight, bias)
 
 def changethelora(name):
     if lactive:
@@ -570,15 +702,112 @@ def unloadlorafowards(p):
     except:
         pass
 
-    emb_db = sd_hijack.model_hijack.embedding_db
     import lora
-    for net in lora.loaded_loras:
-        if hasattr(net,"bundle_embeddings"):
-            for emb_name, embedding in net.bundle_embeddings.items():
-                if embedding.loaded:
-                    emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
+    if not forge:
+        emb_db = sd_hijack.model_hijack.embedding_db
+        for net in lora.loaded_loras:
+            if hasattr(net,"bundle_embeddings"):
+                for emb_name, embedding in net.bundle_embeddings.items():
+                    if embedding.loaded:
+                        emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
 
     lora.loaded_loras.clear()
     if orig_Linear_forward != None :
         torch.nn.Linear.forward = orig_Linear_forward
         orig_Linear_forward = None
+
+def refresh(self, lora_patches, offload_device=torch.device('cpu')):
+    from backend.patcher import lora
+    from backend import utils, memory_management, operations
+    hashes = str(list(lora_patches.keys()))
+
+    # Merge Patches
+
+    all_patches = {}
+
+    for (_, _, _, online_mode), patches in lora_patches.items():
+        for key, current_patches in patches.items():
+            all_patches[(key, online_mode)] = all_patches.get((key, online_mode), []) + current_patches
+
+    # Initialize
+
+    memory_management.signal_empty_cache = True
+
+    parameter_devices = lora.get_parameter_devices(self.model)
+
+    # Restore
+
+    for m in set(self.online_backup):
+        del m.forge_online_loras
+
+    self.online_backup = []
+
+    for k, w in self.backup.items():
+        if not isinstance(w, torch.nn.Parameter):
+            # In very few cases
+            w = torch.nn.Parameter(w, requires_grad=False)
+
+        utils.set_attr_raw(self.model, k, w)
+
+    self.backup = {}
+
+    lora.set_parameter_devices(self.model, parameter_devices=parameter_devices)
+
+    # Patch
+
+    for (key, online_mode), current_patches in all_patches.items():
+        try:
+            parent_layer, child_key, weight = utils.get_attr_with_parent(self.model, key)
+            assert isinstance(weight, torch.nn.Parameter)
+        except:
+            raise ValueError(f"Wrong LoRA Key: {key}")
+
+        if online_mode:
+            if not hasattr(parent_layer, 'forge_online_loras'):
+                parent_layer.forge_online_loras = {}
+
+            parent_layer.forge_online_loras[child_key] = current_patches
+            self.online_backup.append(parent_layer)
+            continue
+
+        if key not in self.backup:
+            self.backup[key] = weight.to(device=offload_device)
+
+        bnb_layer = None
+
+        if hasattr(weight, 'bnb_quantized') and operations.bnb_avaliable:
+            bnb_layer = parent_layer
+            from backend.operations_bnb import functional_dequantize_4bit
+            weight = functional_dequantize_4bit(weight)
+
+        gguf_cls = getattr(weight, 'gguf_cls', None)
+        gguf_parameter = None
+
+        if gguf_cls is not None:
+            gguf_parameter = weight
+            from backend.operations_gguf import dequantize_tensor
+            weight = dequantize_tensor(weight)
+
+        try:
+            weight = lora.merge_lora_to_weight(current_patches, weight, key, computation_dtype=torch.float32)
+        except:
+            print('Patching LoRA weights out of memory. Retrying by offloading models.')
+            lora.set_parameter_devices(self.model, parameter_devices={k: offload_device for k in parameter_devices.keys()})
+            memory_management.soft_empty_cache()
+            weight = lora.merge_lora_to_weight(current_patches, weight, key, computation_dtype=torch.float32)
+
+        if bnb_layer is not None:
+            bnb_layer.reload_weight(weight)
+            continue
+
+        if gguf_cls is not None:
+            gguf_cls.quantize_pytorch(weight, gguf_parameter)
+            continue
+
+        utils.set_attr_raw(self.model, key, torch.nn.Parameter(weight, requires_grad=False))
+
+    # End
+
+    lora.set_parameter_devices(self.model, parameter_devices=parameter_devices)
+    self.loaded_hash = hashes
+    return

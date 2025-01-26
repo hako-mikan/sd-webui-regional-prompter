@@ -10,27 +10,28 @@ import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
 from modules import paths, scripts, shared, extra_networks, prompt_parser
 from modules.processing import Processed
-from modules.script_callbacks import (on_ui_settings,
-                                      CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
-import scripts.attention
-import scripts.latent
-import scripts.regions
-try:
-    reload(scripts.regions) # update without restarting web-ui.bat
-    reload(scripts.attention)
-    reload(scripts.latent)
-except:
-    pass
+from modules.script_callbacks import (on_ui_settings, CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import json  # Presets.
 from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
-from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards)
+from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards, forge_linear_forward)
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
                              create_canvas, draw_region, #detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask, changecs,
                              floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 from io import BytesIO
 import base64
+from packaging import version
+from functools import wraps
+
+try:
+    from modules.ui import versions_html
+    forge = "forge" in versions_html()
+    reforge = "reForge" in versions_html()
+except:
+    reforge = False
+
+print(f"Forge: {forge}, reForge: {reforge}")
 
 KEYBRK_R = "RP_TEMP_REPLACE"
 FLJSON = "regional_prompter_presets.json"
@@ -40,12 +41,6 @@ OPTBREAK = "Use BREAK to change chunks"
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
-
-try:
-    from ldm_patched.modules import model_management
-    forge = True
-except:
-    forge = False
 
 def lange(l):
     return range(len(l))
@@ -509,14 +504,14 @@ class Script(modules.scripts.Script):
     
             ##### calcmode 
             if "Att" in calcmode:
-                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
+                self.handle = hook_forwards(self, p)
                 if hasattr(shared.opts,"batch_cond_uncond"):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
                 unloadlorafowards(p)
             else:
-                self.handle = hook_forwards(self, p.sd_model.model.diffusion_model,remove = True)
+                self.handle = hook_forwards(self, p, remove = True)
                 setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
@@ -524,8 +519,8 @@ class Script(modules.scripts.Script):
         elif "Pro" in self.mode: #Prompt mode use both calcmode
             self.ex = "Ex" in self.mode
             if not usebase : bratios = "0"
-            self.handle = hook_forwards(self, p.sd_model.model.diffusion_model)
-            denoiserdealer(self)
+            self.handle = hook_forwards(self, p)
+            denoiserdealer(self, p)
 
         neighbor(self,p)                                                    #detect other extention
         if self.optbreak: allchanger(p,KEYBRK,KEYBRK_R)
@@ -592,7 +587,7 @@ class Script(modules.scripts.Script):
                 if self.lora_applied: # SBM Don't override orig twice on batch calls.
                     pass
                 else:
-                    denoiserdealer(self)
+                    denoiserdealer(self, p)
                     self.lora_applied = True
                 #escape reload loras in hires-fix
 
@@ -618,7 +613,7 @@ class Script(modules.scripts.Script):
 def unloader(self,p):
     if hasattr(self,"handle"):
         #print("unloaded")
-        hook_forwards(self, p.sd_model.model.diffusion_model, remove=True)
+        hook_forwards(self, p, remove=True)
         del self.handle
 
     self.__init__()
@@ -630,7 +625,7 @@ def unloader(self,p):
 
     unloadlorafowards(p)
 
-def denoiserdealer(self):
+def denoiserdealer(self, p):
     if self.calc =="Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
@@ -721,8 +716,16 @@ def tokendealer(self, p):
 
     padd = 0
     
-    tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
-
+    if forge:
+        if hasattr(p.sd_model, "text_processing_engine_l"):
+            tokenizer = p.sd_model.text_processing_engine_l.tokenize_line
+        else:
+            tokenizer = p.sd_model.text_processing_engine.tokenize_line
+        self.flux = flux = "flux" in str(type(p.sd_model.forge_objects.unet.model.diffusion_model))
+    else:
+        tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
+        self.flux = flux = False
+        
     for pp in ppl:
         tokens, tokensnum = tokenizer(pp)
         pt.append([padd, tokensnum // TOKENS + 1 + padd])
@@ -1187,3 +1190,64 @@ def log(prop):
         print("Property not found in local scope.")
 
 on_ui_settings(ext_on_ui_settings)
+
+class InputAccordionImpl(gr.Checkbox):
+    webui_do_not_create_gradio_pyi_thank_you = True
+    global_index = 2244096 + 4 #1: CD-Tuner, 2:NegPip, 3:lbw
+
+    @wraps(gr.Checkbox.__init__)
+    def __init__(self, value=None, setup=False, **kwargs):
+        if not setup:
+            super().__init__(value=value, **kwargs)
+            return
+
+        self.accordion_id = kwargs.get('elem_id')
+        if self.accordion_id is None:
+            self.accordion_id = f"input-accordion-m-{InputAccordionImpl.global_index}"
+            InputAccordionImpl.global_index += 1
+
+        kwargs_checkbox = {
+            **kwargs,
+            "elem_id": f"{self.accordion_id}-checkbox",
+            "visible": False,
+        }
+        super().__init__(value=value, **kwargs_checkbox)
+        self.change(fn=None, _js='function(checked){ inputAccordionChecked("' + self.accordion_id + '", checked); }', inputs=[self])
+
+        kwargs_accordion = {
+            **kwargs,
+            "elem_id": self.accordion_id,
+            "label": kwargs.get('label', 'Accordion'),
+            "elem_classes": ['input-accordion-m'],
+            "open": False,
+        }
+
+        self.accordion = gr.Accordion(**kwargs_accordion)
+
+    def extra(self):
+        return gr.Column(elem_id=self.accordion_id + '-extra', elem_classes='input-accordion-extra', min_width=0)
+
+    def __enter__(self):
+        self.accordion.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.accordion.__exit__(exc_type, exc_val, exc_tb)
+
+    def get_block_name(self):
+        return "checkbox"
+
+def InputAccordion(value=None, **kwargs):
+    return InputAccordionImpl(value=value, setup=True, **kwargs)
+
+# Check for Gradio version 4; see Forge architecture rework
+IS_GRADIO_4 = version.parse(gr.__version__) >= version.parse("4.0.0")
+# check if Forge or auto1111 pure; extremely hacky
+
+# Forge patches
+
+# See discussion at, class versus instance __module__
+# https://github.com/LEv145/--sd-webui-ar-plus/issues/24
+# Hack for Forge with Gradio 4.0; see `get_component_class_id` in `venv/lib/site-packages/gradio/components/base.py`
+if IS_GRADIO_4:
+    InputAccordionImpl.__module__ = "modules.ui_components"
