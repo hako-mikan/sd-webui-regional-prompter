@@ -69,10 +69,12 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
     if negpip:
         conds, contokens = negpip
-        if contokens:
+        if isinstance(contokens, list):
             for contoken in contokens:
                 start = (v.shape[1]//77 - len(contokens)) * 77
-                v[:,start+1:start+contoken,:] = -v[:,start+1:start+contoken,:] 
+                v[:,start+1:start+contoken,:] = -v[:,start+1:start+contoken,:]
+        elif isinstance(contokens, int):
+            v[:,-contokens:,:] = -v[:,-contokens:,:]
 
     if exists(mask):
         mask = rearrange(mask, 'b ... -> b (...)')
