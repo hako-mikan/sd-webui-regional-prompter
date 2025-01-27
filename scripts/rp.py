@@ -39,8 +39,9 @@ OPTAND = "disable convert 'AND' to 'BREAK'"
 OPTUSEL = "Use LoHa or other"
 OPTBREAK = "Use BREAK to change chunks"
 OPTFLIP = "Flip prompts"
+OPTCOUT = "Comment Out `#`"
 
-OPTIONLIST = [OPTAND,OPTUSEL,OPTBREAK,OPTFLIP,"debug", "debug2"]
+OPTIONLIST = [OPTAND,OPTUSEL,OPTBREAK,OPTFLIP,OPTCOUT,"debug", "debug2"]
 
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
@@ -531,6 +532,7 @@ class Script(modules.scripts.Script):
             self.handle = hook_forwards(self, p)
             denoiserdealer(self, p)
 
+        if OPTCOUT in options: commentouter(p)
         neighbor(self,p)                                                    #detect other extention
         if self.optbreak: allchanger(p,KEYBRK,KEYBRK_R)
         keyreplacer(self, p)                                                      #replace all keys to BREAK
@@ -691,6 +693,31 @@ def commondealer(p, usecom, usencom, flip):
         p.all_negative_prompts = all_negative_prompts
         p.negative_prompt = all_negative_prompts[0]
 
+def commentouter(p):
+    all_prompts = []
+    all_negative_prompts = []
+
+    def remove_comments(text):
+        lines = text.split("\n")
+        processed_lines = []
+        for line in lines:
+            comment_index = line.find("#")
+            if comment_index != -1:
+                processed_lines.append(line[:comment_index].strip())
+            else:
+                processed_lines.append(line.strip())
+        return "\n".join(line for line in processed_lines if line)
+
+    for pr in p.all_prompts:
+        all_prompts.append(remove_comments(pr))
+    p.prompt = remove_comments(p.prompt)
+    p.all_prompts = all_prompts
+
+    for pr in p.all_negative_prompts:
+        all_negative_prompts.append(remove_comments(pr))
+    p.negative_prompt = remove_comments(p.negative_prompt)
+    p.all_negative_prompts = all_negative_prompts
+ 
 def hrdealer(p):
     p.hr_prompt = p.prompt
     p.hr_negative_prompt = p.negative_prompt
