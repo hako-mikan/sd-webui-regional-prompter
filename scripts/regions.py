@@ -266,7 +266,8 @@ def changecs(ratios):
     ratios = ratios.replace("_",";")
     return ratios
 
-def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, image = None, alpha = 0.5,inprocess = False):
+def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, options = [], image = None, alpha = 0.5,inprocess = False):
+    flip_prompts = "Flip prompts" in options
     if image is not None:
         wo, ho  =  image.size
     if mode == "Columns":mode = "Horizontal"
@@ -294,6 +295,7 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, image = None, alpha =
 
     fx = np.zeros((h,w, 3), np.uint8)
     # Base image is coloured according to region divisions, roughly.
+    cmax = 0
     for (i,ocell) in enumerate(aratios2r):
         for icell in aratios2[i]:
             # SBM Creep: Colour by delta so that distinction is more reliable.
@@ -301,6 +303,8 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, image = None, alpha =
                 fx[int(h*ocell[0]):int(h*ocell[1]),int(w*icell[0]):int(w*icell[1]),:] = fcolourise()
             else:
                 fx[int(h*icell[0]):int(h*icell[1]),int(w*ocell[0]):int(w*ocell[1]),:] = fcolourise()
+            cmax += 1
+        
     regions = PIL.Image.fromarray(fx)
     draw = PIL.ImageDraw.Draw(regions)
     c = 0
@@ -311,9 +315,9 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, image = None, alpha =
     for (i,ocell) in enumerate(aratios2r):
         for icell in aratios2[i]: 
             if not indflip:
-                draw.text((int(w*icell[0]),int(h*ocell[0])),f"{c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]))
+                draw.text((int(w*icell[0]),int(h*ocell[0])),f"{cmax - c - 1 if flip_prompts else c}",coldealer(fx[int(h*ocell[0]),int(w*icell[0])]))
             else: 
-                draw.text((int(w*ocell[0]),int(h*icell[0])),f"{c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
+                draw.text((int(w*ocell[0]),int(h*icell[0])),f"{cmax - c - 1 if flip_prompts else c}",coldealer(fx[int(h*icell[0]),int(w*ocell[0])]))
             c += 1
 
     regions = regions.resize((wo, ho))

@@ -55,8 +55,10 @@ def setuploras(self):
 
     if forge:
         shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
-        from backend import args
-        args.dynamic_args["online_lora"] = True
+        from backend.args import dynamic_args
+        dynamic_args["online_lora"] = True
+        import networks as net
+        net.load_networks = load_networks
 
         for name, module in shared.sd_model.forge_objects.clip.cond_stage_model.clip_l.named_modules():
             if name == "transformer.text_model.encoder.layers.0.self_attn.q_proj":
@@ -202,7 +204,7 @@ def denoised_callback_s(p1, p2 = None, p3 = None):
 
         outs = []
         for i in range(length):
-            regioner.set_region(i)
+            regioner.set_region(length - i - 1)
             c["c_crossattn"] = conds[i*batch:i*batch+batch]
             if y is not None:
                 c["y"] = y[i*batch:i*batch+batch]
@@ -343,8 +345,8 @@ def lora_namer(self, p, lnter, lnur):
     import lora as loraclass
     name_to_hash = {}
     for lora in loraclass.loaded_loras:
-        ldict_u[lora.name] =lora.multiplier if self.isbefore15 else lora.unet_multiplier
-        ldict_te[lora.name] =lora.multiplier  if self.isbefore15 else lora.te_multiplier
+        ldict_u[lora.network_on_disk.filename if forge else lora.name] =lora.multiplier if self.isbefore15 else lora.unet_multiplier
+        ldict_te[lora.network_on_disk.filename if forge else lora.name] =lora.multiplier  if self.isbefore15 else lora.te_multiplier
         name_to_hash[lora.network_on_disk.alias] = lora.network_on_disk.filename
         name_to_hash[lora.network_on_disk.name] = lora.network_on_disk.filename
     
@@ -361,10 +363,10 @@ def lora_namer(self, p, lnter, lnur):
 
         for called in calledloras:
             names = names + name_to_hash[called.items[0]] if forge else names + called.items[0]
-            tdict[called.items[0]] = syntaxdealer(called.items,"unet=",1)
+            tdict[name_to_hash[called.items[0]] if forge else called.items[0]] = syntaxdealer(called.items,"unet=",1)
 
         for key in ldictlist_u[i].keys():
-            shin_key = flokey(key)
+            shin_key = flokey(key) 
             if shin_key in names:
                 ldictlist_u[i+1][key] = float(tdict[shin_key])
                 ldictlist_te[i+1][key] = float(tdict[shin_key])
@@ -465,6 +467,8 @@ class LoRARegioner:
         self.step = 0
         self.stop = stop
         self.stop_hr = stop_hr
+        self.stopped = False
+        self.stopped_hr = False
 
         try:
             import lora_ctl_network as ctl
@@ -561,6 +565,8 @@ class LoRARegioner:
     def reset(self):
         self.te_count = 0
         self.u_count = 0
+        self.stopped = False
+        self.stopped_hr = False
 
     def te_start_f(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
@@ -576,9 +582,11 @@ class LoRARegioner:
         offload_device = shared.sd_model.forge_objects.clip.patcher.offload_device
 
         for lora_key, patch in lora_patches.items():
-            for key in patch:
-                if lora_key in self.mlist:
-                    patch[key][0][0] = self.mlist[lora_key]
+            for list_key in self.mlist:
+                if list_key in lora_key[0]:
+                    if labug: print(f"LoRA {lora_key} detected in {self.mlist}")
+                    for patch_key in patch:
+                        patch[patch_key][0][0] = self.mlist[list_key]
 
         refresh(lora_lorader, lora_patches=lora_patches, offload_device=offload_device)
 
@@ -589,17 +597,37 @@ class LoRARegioner:
             print(self.mlist)
         if self.mlist == {}: return
  
-        stopstep = self.stop_hr if in_hr else self.stop
+        strengths = list(self.mlist.values())
 
-        for name, module in shared.sd_model.forge_objects.unet.model.named_modules():
-            patches = getattr(module, 'forge_online_loras', None)
-            weight_patches, bias_patches = None, None
-            if patches is not None:
-                weight_patches = patches.get('weight', None)
-                if weight_patches:
-                    strengths = list(self.mlist.values())
-                    for i in range(len(strengths)):
-                        weight_patches[i][0] = strengths[i]
+        def set_strengths(strengths):
+            all = strengths == 0
+            for name, module in shared.sd_model.forge_objects.unet.model.named_modules():
+                patches = getattr(module, 'forge_online_loras', None)
+                weight_patches, bias_patches = None, None
+                if patches is not None:
+                    weight_patches = patches.get('weight', None)
+                    if weight_patches:
+                        if all:
+                            for i in range(len(weight_patches)):
+                                weight_patches[i][0] = 0
+                        else:
+                            if len(weight_patches) != len(strengths) :
+                                continue
+                            for i in range(len(strengths)):
+                                weight_patches[i][0] = strengths[i]
+
+        stopstep = self.stop_hr if in_hr else self.stop
+        if self.step >= stopstep:
+            if (self.stopped_hr if in_hr else self.stopped):
+                return
+            else:
+                set_strengths(0)
+                if in_hr:
+                    self.stopped_hr = True
+                else:
+                    self.stopped = True
+
+        set_strengths(strengths)
 
 regioner = LoRARegioner()
 
@@ -703,7 +731,10 @@ def unloadlorafowards(p):
         pass
 
     import lora
-    if not forge:
+    if forge:
+        from backend.args import dynamic_args
+        dynamic_args["online_lora"] = False
+    else:
         emb_db = sd_hijack.model_hijack.embedding_db
         for net in lora.loaded_loras:
             if hasattr(net,"bundle_embeddings"):
@@ -810,4 +841,71 @@ def refresh(self, lora_patches, offload_device=torch.device('cpu')):
 
     lora.set_parameter_devices(self.model, parameter_devices=parameter_devices)
     self.loaded_hash = hashes
+    return
+
+
+def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=None):
+    from modules import sd_models
+    import networks as nets
+    from backend.args import dynamic_args
+    from modules import sd_models, errors
+
+    global lora_state_dict_cache
+
+    current_sd = sd_models.model_data.get_sd_model()
+    if current_sd is None:
+        return
+
+    nets.loaded_networks.clear()
+
+    unavailable_networks = []
+    for name in names:
+        if name.lower() in nets.forbidden_network_aliases and nets.available_networks.get(name) is None:
+            unavailable_networks.append(name)
+        elif nets.available_network_aliases.get(name) is None:
+            unavailable_networks.append(name)
+
+    if unavailable_networks:
+        nets.update_available_networks_by_names(unavailable_networks)
+
+    networks_on_disk = [nets.available_networks.get(name, None) if name.lower() in nets.forbidden_network_aliases else nets.available_network_aliases.get(name, None) for name in names]
+    if any(x is None for x in networks_on_disk):
+        nets.list_available_networks()
+        networks_on_disk = [nets.available_networks.get(name, None) if name.lower() in nets.forbidden_network_aliases else nets.available_network_aliases.get(name, None) for name in names]
+
+    for i, (network_on_disk, name) in enumerate(zip(networks_on_disk, names)):
+        try:
+            net = nets.load_network(name, network_on_disk)
+        except Exception as e:
+            errors.display(e, f"loading network {network_on_disk.filename}")
+            continue
+        net.mentioned_name = name
+        network_on_disk.read_hash()
+        nets.loaded_networks.append(net)
+
+    online_mode = dynamic_args.get('online_lora', False)
+
+    if not current_sd.forge_objects.unet.model.storage_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+        online_mode = False
+
+    compiled_lora_targets = []
+    for a, b, c in zip(networks_on_disk, unet_multipliers, te_multipliers):
+        compiled_lora_targets.append([a.filename, b, c, online_mode])
+
+    compiled_lora_targets_hash = str(compiled_lora_targets)
+
+    if current_sd.current_lora_hash == compiled_lora_targets_hash:
+        return
+
+    current_sd.current_lora_hash = compiled_lora_targets_hash
+    current_sd.forge_objects.unet = current_sd.forge_objects_original.unet
+    current_sd.forge_objects.clip = current_sd.forge_objects_original.clip
+
+    for filename, strength_model, strength_clip, online_mode in compiled_lora_targets:
+        lora_sd = nets.load_lora_state_dict(filename)
+        current_sd.forge_objects.unet, current_sd.forge_objects.clip = nets.load_lora_for_models(
+            current_sd.forge_objects.unet, current_sd.forge_objects.clip, lora_sd, strength_model, strength_clip,
+            filename=filename, online_mode=online_mode)
+
+    current_sd.forge_objects_after_applying_lora = current_sd.forge_objects.shallow_copy()
     return

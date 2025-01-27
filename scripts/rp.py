@@ -38,6 +38,10 @@ FLJSON = "regional_prompter_presets.json"
 OPTAND = "disable convert 'AND' to 'BREAK'"
 OPTUSEL = "Use LoHa or other"
 OPTBREAK = "Use BREAK to change chunks"
+OPTFLIP = "Flip prompts"
+
+OPTIONLIST = [OPTAND,OPTUSEL,OPTBREAK,OPTFLIP,"debug", "debug2"]
+
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
 PTPRESETALT = os.path.join(paths.script_path, "scripts")
@@ -213,8 +217,8 @@ class Script(modules.scripts.Script):
         # for latent mode
         self.filters = []
         self.lora_applied = False
-        self.lstop = int(lstop)
-        self.lstop_hr = int(lstop_hr)
+        self.lstop = 2244096 if int(0 if lstop =="" else lstop) == 0 else int(lstop)
+        self.lstop_hr = 2244096 if int(0 if lstop_hr =="" else lstop_hr) == 0 else int(lstop_hr)
         # for inpaintmask
         self.regmasks = None
         self.regbase = None
@@ -260,9 +264,9 @@ class Script(modules.scripts.Script):
         presets = loadpresets(filepath)
         presets = LPRESET.update(presets)
 
-        with gr.Accordion("Regional Prompter", open=False, elem_id="RP_main" + eladd):
+        with InputAccordion(False, label=self.title()) as active:
             with gr.Row():
-                active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
+                #active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
                 urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
             with gr.Row():
                 #smode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
@@ -305,7 +309,8 @@ class Script(modules.scripts.Script):
                 lnter = gr.Textbox(label="LoRA in negative textencoder",value="0",interactive=True,elem_id="RP_ne_tenc_ratio_negative" + eladd,visible=True)
                 lnur = gr.Textbox(label="LoRA in negative U-net",value="0",interactive=True,elem_id="RP_ne_unet_ratio_negative" + eladd,visible=True)
             with gr.Row():
-                options = gr.CheckboxGroup(value=False, label="Options",choices=[OPTAND, OPTUSEL,OPTBREAK, "debug", "debug2"], interactive=True, elem_id="RP_options" + eladd)
+                options = gr.CheckboxGroup(value=False, label="Options",choices=OPTIONLIST, interactive=True, elem_id="RP_options" + eladd)
+                options_text = gr.Textbox(visible=False, value = "")
             mode = gr.Textbox(value = "Matrix",visible = False, elem_id="RP_divide_mode" + eladd)
 
             dummy_img = gr.Image(type="pil", show_label  = False, height=256, width=256,source = "upload", interactive=True, visible = False)
@@ -321,6 +326,7 @@ class Script(modules.scripts.Script):
                 return gr.Tabs.update(selected="t"+mode)
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
+            options_text.change(fn=lambda x: [y for y in x.split(",")], inputs=[options_text], outputs=[options])
             settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
         
         self.infotext_fields = [
@@ -336,7 +342,7 @@ class Script(modules.scripts.Script):
                 (usebase, "RP Use Base"),
                 (usecom, "RP Use Common"),
                 (usencom, "RP Use Ncommon"),
-                (options,"RP Options"),
+                (options_text,"RP Options"),
                 (lnter,"RP LoRA Neg Te Ratios"),
                 (lnur,"RP LoRA Neg U Ratios"),
                 (threshold,"RP threshold"),
@@ -374,7 +380,7 @@ class Script(modules.scripts.Script):
             if preset[0] == "Horizontal":preset[0] = "Columns"
             return preset
 
-        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper,thei,twid,dummy_img,overlay],outputs = [areasimg,template])
+        maketemp.click(fn=makeimgtmp, inputs =[ratios,mmode,usecom,usebase,flipper,thei,twid,options,dummy_img,overlay],outputs = [areasimg,template])
         applypresets.click(fn=setpreset, inputs = [availablepresets, *settings], outputs=settings)
         savesets.click(fn=savepresets, inputs = [presetname,*settings],outputs=availablepresets)
         
@@ -383,7 +389,7 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, a_debug , rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
-
+        
         if type(options) is bool:
             options = ["disable convert 'AND' to 'BREAK'"] if options else []
         elif type(options) is str:
@@ -392,8 +398,11 @@ class Script(modules.scripts.Script):
         if a_debug == True:
             options.append("debug")
 
+        options = [item for item in options if item in OPTIONLIST]
+
         debug = "debug" in options
         debug2 = "debug2" in options
+        flip_prompt = OPTFLIP in options
         self.slowlora = OPTUSEL in options
 
         if type(polymask) == str:
@@ -445,7 +454,7 @@ class Script(modules.scripts.Script):
             "RP Use Base":usebase,
             "RP Use Common":usecom,
             "RP Use Ncommon": usencom,
-            "RP Options" : options,
+            "RP Options" : ",".join(options),
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
@@ -526,7 +535,7 @@ class Script(modules.scripts.Script):
         if self.optbreak: allchanger(p,KEYBRK,KEYBRK_R)
         keyreplacer(self, p)                                                      #replace all keys to BREAK
         blankdealer(self, p)                                               #add "_" if prompt of last region is blank
-        commondealer(p, self.usecom, self.usencom)          #add commom prompt to all region
+        commondealer(p, self.usecom, self.usencom, flip_prompt)          #add commom prompt to all region
         if "La" in self.calc: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
         if self.optbreak: allchanger(p,KEYBRK_R,KEYBRK)
@@ -654,7 +663,7 @@ def blankdealer(self, p):
         all_prompts.append(prompt)
     p.all_prompts = all_prompts
 
-def commondealer(p, usecom, usencom):
+def commondealer(p, usecom, usencom, flip):
     all_prompts = []
     all_negative_prompts = []
 
@@ -665,6 +674,8 @@ def commondealer(p, usecom, usencom):
                 continue
             ppl[i] = ppl[0] + ", " + ppl[i]
         ppl = ppl[1:]
+        if flip:
+            ppl = ppl[::-1]
         prompt = f"{KEYBRK} ".join(ppl)
         return prompt
 
@@ -1127,7 +1138,7 @@ def bckeydealer(self, p):
 
 def keyconverter(aratios,mode,usecom,usebase,p):
     '''convert BREAKS to ADDCOMM/ADDBASE/ADDCOL/ADDROW'''
-    keychanger = makeimgtmp(aratios,mode,usecom,usebase,False,512,512, inprocess = True)
+    keychanger = makeimgtmp(aratios,mode,usecom,usebase,False,512,512,options = ",", inprocess = True)
     keychanger = keychanger[:-1]
     #print(keychanger,p.prompt)
     for change in keychanger:
