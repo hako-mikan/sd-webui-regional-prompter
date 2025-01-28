@@ -9,18 +9,11 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 
 try:
-    import ldm.modules.attention as atm
-    forge = False
-except:
-    forge = True
-    from backend.diffusion_engine.base import ForgeDiffusionEngine, ForgeObjects
-    from backend.nn.flux import attention, fp16_fix
-
-try:
     from modules.ui import versions_html
+    forge = "forge" in versions_html()
     reforge = "reForge" in versions_html()
 except:
-    reforge = False
+    forge = reforge = False
 
 TOKENSCON = 77
 TOKENS = 75

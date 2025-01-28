@@ -29,7 +29,7 @@ try:
     forge = "forge" in versions_html()
     reforge = "reForge" in versions_html()
 except:
-    reforge = False
+    forge = reforge = False
 
 print(f"Forge: {forge}, reForge: {reforge}")
 
@@ -220,6 +220,7 @@ class Script(modules.scripts.Script):
         self.lora_applied = False
         self.lstop = 2244096 if int(0 if lstop =="" else lstop) == 0 else int(lstop)
         self.lstop_hr = 2244096 if int(0 if lstop_hr =="" else lstop_hr) == 0 else int(lstop_hr)
+
         # for inpaintmask
         self.regmasks = None
         self.regbase = None
@@ -478,7 +479,7 @@ class Script(modules.scripts.Script):
 
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
-        if forge: self.isvanilla = not self.isvanilla
+        if forge or reforge: self.isvanilla = not self.isvanilla
 
         if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
             # Testing shows a round down occurs in model.
@@ -1191,11 +1192,11 @@ def keycounter(self, p):
         keys.remove(KEYBRK)
     pc = sum([p.prompt.count(text) for text in keys])
     npc = sum([p.negative_prompt.count(text) for text in keys])
-    self.divide = [pc + 1, npc + 1]
+    self.divide = [pc, npc]
 
 def resetpcache(p):
-    p.cached_c = [None,None]
-    p.cached_uc = [None,None]
+    p.cached_c = [None, None]
+    p.cached_uc = [None, None]
     p.cached_hr_c = [None, None]
     p.cached_hr_uc = [None, None]
 

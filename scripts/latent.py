@@ -13,7 +13,7 @@ try:
     forge = "forge" in versions_html()
     reforge = "reForge" in versions_html()
 except:
-    reforge = False
+    forge = reforge = False
 
 if forge:
     from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg
@@ -63,6 +63,8 @@ def setuploras(self):
         for name, module in shared.sd_model.forge_objects.clip.cond_stage_model.clip_l.named_modules():
             if name == "transformer.text_model.encoder.layers.0.self_attn.q_proj":
                 module.forward = forge_linear_forward.__get__(module)
+    if reforge:
+        shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -192,7 +194,7 @@ def denoised_callback_s(p1, p2 = None, p3 = None):
         conds = c["c_crossattn"]
         y = c["y"] if "y" in c else None
 
-        if not self.active:
+        if not lactive:
             return p1(input_x, timestep, **c)
         
         length = len(cond_or_uncond)
@@ -301,7 +303,6 @@ def denoised_callback_s(p1, p2 = None, p3 = None):
                         #print("3",type(self.rps.latent),type(fil))
                         x[:,:,:,:] =  orig[:,:,:,:] * (1 - fil) + x[:,:,:,:] * fil
 
-            
     if p3 is not None: #forge
         out = x[orig_list]
         return out
@@ -639,7 +640,7 @@ def h_Linear_forward(self, input):
     if islora:
         import lora
         return lora.lora_forward(self, input, torch.nn.Linear_forward_before_lora)
-    elif forge:
+    elif forge or reforge:
         return orig_Linear_forward(self, input)
     else:
         import networks

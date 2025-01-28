@@ -13,6 +13,16 @@ ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.co
 - いくつかのバグフィックス(Forge関連)
 - ForgeにおいてLatentモード対応、領域別LoRA対応（基本的なLoRAしか試してません。）
 
+| クライアント| A1111 | Forge| reForge       |
+|------------------|--------------------|---------------|---------------|
+| Attention Mode   | ○                 | ○            | ○            |
+| Latent Mode      | ○                 | △             | △             |
+| LoRA (Latent)           | ○                 | ○             | ×             |
+
+○：対応  
+△：一部対応：バッチサイズを大きくすると正常に動作しない。正常に動作しないバッチサイズはVRAM環境による。  
+×：非対応  
+
 ## 更新情報
 - 新機能「[差分生成・差分アニメ](differential_ja.md)」
 - [APIを通しての利用について](#apiを通した利用方法)

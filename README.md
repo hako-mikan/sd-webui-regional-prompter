@@ -9,6 +9,20 @@
 [<img src="https://img.shields.io/badge/言語-日本語-green.svg?style=plastic" height="25" />](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 [<img src="https://img.shields.io/badge/Support-%E2%99%A5-magenta.svg?logo=github&style=plastic" height="25" />](https://github.com/sponsors/hako-mikan)
 
+## Updates 2025.01.28.2000 (JST)
+- support reForge
+- reForgeに対応
+
+| Client             |  A1111      | Forge         | reForge      
+|------------------|--------------------|---------------|---------------|
+| Attention Mode   | ○                 | ○            | ○            |
+| Latent Mode      | ○                 | △             | △             |
+| LoRA (Latent)           | ○                 | ○             | ×             |
+
+○ : Supported  
+△: Supported, but may not function properly with large batch sizes. Depends on VRAM.  
+×: Not supported
+
 ## for LoHa, LoCon users 
 **About LoRA/LoCon/LoHa**  
 There are certain constraints due to the specifications of the Web-UI regarding the following:
@@ -19,7 +33,7 @@ These constraints arise because the Web-UI cannot perform specific optimizations
 **LoRA/LoCon/LoHaについて**
 LoRAの種類別の使用条件です。
 - **LoRA**: 速度低下なく適用可能です。
-- **LoCon/LoHa**: "Use LoHa or other" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。
+- **LoCon/LoHa**: "Use LoHa or other" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。Forgeの場合制限はありません。
 
 ## Updates 2025.01.27.0100 (JST)  
 - Fixed several bugs (related to Forge)  
