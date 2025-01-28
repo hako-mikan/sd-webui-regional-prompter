@@ -599,12 +599,10 @@ def save_mask(img, flpath):
     Cv's colour scheme is an annoyance, but avoiding yet another import. 
     """
     # Cv's colour scheme is annoying.
-    try:
-        img = img["image"]
-    except Exception:
-        pass
+
     if VARIANT != 0: # Always save without variance.
         img = img[:-VARIANT,:-VARIANT,:]
+
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(flpath, img)
 
@@ -740,6 +738,12 @@ def draw_image(img, inddict = False):
     dimg = img
     return dimg, clearer, mask
 
+def change_color(index):
+    colors = deterministic_colours(index)
+    rgb = colors[-1]
+    html_color = "#{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
+    return gr.ImageEditor.update(brush = gr.Brush(colors=[html_color], color_mode='fixed'))
+
 def create_canvas(h, w, indwipe = True):
     """New region sketch area.
     
@@ -768,6 +772,7 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask):
     tm = None
     # Sort colour dict by key, return value for masking.
     #for _,c in sorted(REGUSE.items(), key = lambda x: x[0]):
+
     for c in sorted(REGUSE.keys()):
         m = detect_mask(polymask, c, 1)
         if VARIANT != 0:

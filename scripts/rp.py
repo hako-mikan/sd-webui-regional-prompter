@@ -16,7 +16,7 @@ from json.decoder import JSONDecodeError
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards, forge_linear_forward)
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
-                             create_canvas, draw_region, #detect_mask, detect_polygons,  
+                             create_canvas, draw_region, change_color,#detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask, changecs,
                              floatdef, inpaintmaskdealer, makeimgtmp, matrixdealer)
 from io import BytesIO
@@ -102,27 +102,43 @@ def ui_tab(mode, submode, eladd):
         with gr.Row(): # Creep: Placeholder, should probably make this invisible.
             xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True,elem_id="RP_mask_mode" + eladd)
         with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
-            polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask" + eladd,
+            if IS_GRADIO_4:
+                polymask = gr.ImageEditor(elem_id="polymask" + eladd, image_mode = "RGB",canvas_size = (512,512),
+                      source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch",
+                      brush = gr.Brush(colors=["#804040"], color_mode='fixed'))#.style(height=480)
+            else:
+                polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask" + eladd,
                                 source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
         with gr.Row():
-            with gr.Column():
-                num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region" + eladd)
-                canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_width" + eladd)
-                canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_height" + eladd)
-                btn = gr.Button(value = "Draw region + show mask")
-                # btn2 = gr.Button(value = "Display mask") # Not needed.
-                cbtn = gr.Button(value="Create mask area")
-            with gr.Column():
-                showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
-                # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
-                uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
-        # btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
-        btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
-        # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
-        cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])
-        uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
+            if IS_GRADIO_4:
+                with gr.Column():
+                    num = gr.Slider(label="Mask Paint", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region" + eladd)
+                    canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_width" + eladd)
+                    canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_height" + eladd)
+                num.change(fn=change_color,inputs = [num], outputs = [polymask])
+                canvas_width.change(fn=lambda x, y:gr.update(canvas_size = (x,y)),inputs = [canvas_width, canvas_height], outputs = [polymask])
+                canvas_height.change(fn=lambda x, y:gr.update(canvas_size = (x,y)),inputs = [canvas_width, canvas_height], outputs = [polymask])
+                showmask = uploadmask = None
+            else:           
+                with gr.Column():
+                    num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region" + eladd)
+                    canvas_width = gr.Slider(label="Inpaint+ Width", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_width" + eladd)
+                    canvas_height = gr.Slider(label="Inpaint+ Height", minimum=64, maximum=2048, value=512, step=8,elem_id="RP_mask_height" + eladd)
+                    btn = gr.Button(value = "Draw region + show mask")
+                    # btn2 = gr.Button(value = "Display mask") # Not needed.
+                    cbtn = gr.Button(value="Create mask area")
+                with gr.Column():
+                    showmask = gr.Image(label = "Mask", shape=(IDIM, IDIM))
+                    # CONT: Awaiting fix for https://github.com/gradio-app/gradio/issues/4088.
+                    uploadmask = gr.Image(label="Upload mask here cus gradio",source = "upload", type = "numpy")
+                # btn.click(detect_polygons, inputs = [polymask,num], outputs = [polymask,num])
+                btn.click(draw_region, inputs = [polymask, num], outputs = [polymask, num, showmask])
+                # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
+                cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])   
+                uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
+
+            vret = [xmode, polymask, num, canvas_width, canvas_height, showmask, uploadmask]
         
-        vret = [xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask]
     elif mode == "Prompt":
         with gr.Row():
             pguide = gr.HTML(value = fhurl(PROMPTURL, "Prompt mode guide"))
@@ -295,7 +311,7 @@ class Script(modules.scripts.Script):
 
             # Hardcode expansion back to components for any specific events.
             (mmode, ratios, maketemp, template, areasimg, flipper, thei, twid, overlay) = ltabp[0]
-            (xmode, polymask, num, canvas_width, canvas_height, btn, cbtn, showmask, uploadmask) = ltabp[1]
+            (xmode, polymask, num, canvas_width, canvas_height, showmask, uploadmask) = ltabp[1]
             (pmode, threshold) = ltabp[2]
             
             with gr.Accordion("Presets",open = False):
@@ -420,7 +436,10 @@ class Script(modules.scripts.Script):
                     print("Error: The mask image is either not a valid path or not a valid base64 encoded image.")
             if image is not None:
                 polymask,_,_ = draw_image(np.array(image.convert('RGB')))
-        
+        elif isinstance(polymask, dict):
+            polymask = polymask.get("layers", None)[0] if IS_GRADIO_4 else polymask.get("image", None)
+            polymask,_,_ = draw_image(polymask)
+
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
 
         if debug: pprint([active, debug, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
