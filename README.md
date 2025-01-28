@@ -13,7 +13,7 @@
 - support reForge
 - reForgeに対応
 
-| Mode \Client             |  A1111      | Forge         | reForge      
+| Mode \ Client             |  A1111      | Forge         | reForge      
 |------------------|--------------------|---------------|---------------|
 | Attention Mode   | ○                 | ○            | ○            |
 | Latent Mode      | ○                 | △             | △             |
