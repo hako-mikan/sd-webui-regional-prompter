@@ -348,7 +348,6 @@ fcountbrk = lambda x: x.count(KEYBRK)
 fint = lambda x: int(x)
 
 def matrixdealer(self, p, aratios, bratios, mode):
-    print(aratios, bratios, mode)
     if "Ran" in mode:
         randdealer(self,p,aratios,bratios)
         return 
