@@ -427,6 +427,11 @@ Result
 ![sample](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/asample3.png)  
 
 
+## Troubleshooting
+### Input type (struct c10::Half) and bias type (float) should be the same
+If you encounter above error while using LoRA with the MIDVRAM option or similar settings, please enable the **"Use LoHa or other"** option.
+
+
 ## Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
 

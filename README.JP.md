@@ -302,7 +302,9 @@ APIを通してこの拡張を利用する場合には次の書式を使いま�
 ### 謝辞
 Attention coupleを提案された[furusu](https://note.com/gcem156)氏、Latent coupleを提案された[opparco](https://github.com/opparco)氏、2D生成のコード作成に協力して頂いた[Symbiomatrix](https://github.com/Symbiomatrix)に感謝します。
 
-
+### トラブルシューティイング
+#### Input type (struct c10::Half) and bias type (float) should be the same
+　MIDVRAMオプションなどを使用している時にLoRAなどを使用している場合に上記エラーが出るときには"Use LoHa or other"オプションを有効にして下さい。
 
 - 新機能2D領域を追加しました
 - 新しい計算方式「Latent」を追加しました。生成が遅くなりますがLoRAをある程度分離できます
