@@ -343,7 +343,7 @@ class Script(modules.scripts.Script):
             dummy_false = gr.Checkbox(value=False, visible=False)
 
             areasimg.upload(fn=lambda x: x,inputs=[areasimg],outputs = [dummy_img])
-            areasimg.clear(fn=lambda x: None,outputs = [dummy_img])
+            areasimg.clear(fn=lambda : None,outputs = [dummy_img])
 
             def changetabs(mode):
                 modes = ["Matrix", "Mask", "Prompt"]
