@@ -202,7 +202,7 @@ def compress_components(l):
     
 class Script(modules.scripts.Script):
     def __init__(self,active = False,mode = "Matrix",calc = "Attention",h = 0, w =0, debug = False, debug2 = False, usebase = False, 
-    usecom = False, usencom = False, batch = 1,isxl = False, lstop=0, lstop_hr=0, diff = None):
+    usecom = False, usencom = False, batch = 1,lstop=0, lstop_hr=0, diff = None):
         self.active = active
         if mode == "Columns": mode = "Horizontal"
         if mode == "Rows": mode = "Vertical"
@@ -216,8 +216,13 @@ class Script(modules.scripts.Script):
         self.usecom = usecom
         self.usencom = usencom
         self.batch_size = batch
-        self.isxl = isxl
 
+        model = shared.sd_model
+        self.is_sdxl = type(model).__name__ == "StableDiffusionXL" or getattr(model,'is_sdxl', False)
+        self.is_sd2 = type(model).__name__ == "StableDiffusion2" or getattr(model,'is_sd2', False)
+        self.is_sd1 = type(model).__name__ == "StableDiffusion" or getattr(model,'is_sd1', False)
+        self.is_flux = type(model).__name__ == "Flux" or getattr(model,'is_flux', False)
+        
         self.aratios = []
         self.bratios = []
         self.divide = 0
@@ -243,6 +248,8 @@ class Script(modules.scripts.Script):
         #for prompt region
         self.pe = []
         self.step = 0
+
+        self.need_hook = False
         
         #for Differential
         self.diff = diff
@@ -253,7 +260,7 @@ class Script(modules.scripts.Script):
         self.condi = 0
 
         self.used_prompt = ""
-        self.logprops = ["active","mode","usebase","usecom","usencom","batch_size","isxl","h","w","aratios",
+        self.logprops = ["active","mode","usebase","usecom","usencom","batch_size","is_sdxl","h","w","aratios",
                         "divide","count","eq","pn","hr","pe","step","diff","used_prompt"]
         self.log = {}
 
@@ -490,7 +497,7 @@ class Script(modules.scripts.Script):
         if flipper:aratios = changecs(aratios)
 
         self.__init__(active, tabs2mode(rp_selected_tab, mmode, xmode, pmode) ,calcmode ,p.height, p.width, debug, debug2,
-        usebase, usecom, usencom, p.batch_size, hasattr(shared.sd_model,"conditioner"),lstop, lstop_hr, diff = diff)
+        usebase, usecom, usencom, p.batch_size, lstop, lstop_hr, diff = diff)
 
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
@@ -536,14 +543,14 @@ class Script(modules.scripts.Script):
     
             ##### calcmode 
             if "Att" in calcmode:
-                self.handle = hook_forwards(self, p)
+                hook_forwards(self, p)
                 if hasattr(shared.opts,"batch_cond_uncond"):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
                 unloadlorafowards(p)
             else:
-                self.handle = hook_forwards(self, p, remove = True)
+                hook_forwards(self, p, remove = True)
                 setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
@@ -551,7 +558,7 @@ class Script(modules.scripts.Script):
         elif "Pro" in self.mode: #Prompt mode use both calcmode
             self.ex = "Ex" in self.mode
             if not usebase : bratios = "0"
-            self.handle = hook_forwards(self, p)
+            hook_forwards(self, p)
             denoiserdealer(self, p)
 
         if OPTCOUT in options: commentouter(p)
@@ -577,6 +584,10 @@ class Script(modules.scripts.Script):
         if self.active:
             self.current_prompts = kwargs["prompts"].copy()
             p.disable_extra_networks = False
+
+    def process_before_every_sampling(self, p, *args, **kwargs):
+        if self.active and forge and self.need_hook:
+            hook_forwards(self, p)
 
     def before_hr(self, p, active, _, rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                       usebase, usecom, usencom, calcmode,nchangeand, lnter, lnur, threshold, polymask,lstop, lstop_hr, flipper):
@@ -644,10 +655,9 @@ class Script(modules.scripts.Script):
         denoised_callback_s(self, params)
 
 def unloader(self,p):
-    if hasattr(self,"handle"):
+    if self.hooked:
         #print("unloaded")
         hook_forwards(self, p, remove=True)
-        del self.handle
 
     self.__init__()
     
@@ -783,7 +793,7 @@ def tokendealer(self, p):
             tokenizer = p.sd_model.text_processing_engine.tokenize_line
         self.flux = flux = "flux" in str(type(p.sd_model.forge_objects.unet.model.diffusion_model))
     else:
-        tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.isxl else shared.sd_model.cond_stage_model.tokenize_line
+        tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.is_sdxl else shared.sd_model.cond_stage_model.tokenize_line
         self.flux = flux = False
         
     for pp in ppl:
@@ -1160,7 +1170,7 @@ def debugall(self):
     print(f"tokens : {self.ppt},{self.pnt},{self.pt},{self.nt}")
     print(f"ratios : {self.aratios}\n")
     print(f"prompt : {self.pe}")
-    print(f"env : before15:{self.isbefore15},isxl:{self.isxl}")
+    print(f"env : before15:{self.isbefore15},isxl:{self.is_sdxl}")
     print(f"loras{self.log}")
 
 def bckeydealer(self, p):

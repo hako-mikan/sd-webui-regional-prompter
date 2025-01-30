@@ -99,7 +99,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
         if self.x == None : cloneparams(params,self) # return to step 0 if mask is ready
         self.pfirst = True
 
-        lim = 1 if self.isxl else 3
+        lim = 1 if self.is_sdxl else 3
 
         if len(att.pmaskshw) > lim:
             self.filters = []
@@ -109,7 +109,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                 basemask = None
                 for t, th, bratio in zip(self.pe, self.th, self.bratios):
                     key = f"{t}-{b}"
-                    _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step, bratio = bratio)
+                    _, _, mask = att.makepmask(att.pmasks[key], params.x.shape[2], params.x.shape[3], th, self.step,self.total_step, self.is_sdxl,bratio = bratio)
                     mask = mask.repeat(params.x.shape[1],1,1)
                     basemask = 1 - mask if basemask is None else basemask - mask
                     if self.ex:
@@ -132,7 +132,7 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
                     masks = None
                     for b in range(self.batch_size):
                         key = f"{t}-{b}"
-                        _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step, bratio = bratio)
+                        _, mask, _ = att.makepmask(att.pmasks[key], hw[0], hw[1], th, self.step,self.total_step, self.is_sdxl,bratio = bratio)
                         mask = mask.unsqueeze(0).unsqueeze(-1)
                         masks = mask if b ==0 else torch.cat((masks,mask),dim=0)
                     allmask.append(mask)     

@@ -31,7 +31,7 @@ def default(val, d):
         return val
     return d() if isfunction(d) else d
 
-def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, isxl = False, negpip = None, inhr = None):
+def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,tokens=[],width = 64,height = 64,step = 0, is_sdxl = False, negpip = None, inhr = None):
     
     # Forward.
 
@@ -84,25 +84,26 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     if inhr and not hiresfinished: hiresscaler(height,width,attn,h)
 
     if userpp and step > 0:
-        for b in range(attn.shape[0] // 8):
+        for b in range(attn.shape[0] // h):
             if pmaskshw == []:
                 pmaskshw = [(height,width)]
             elif (height,width) not in pmaskshw:
                 pmaskshw.append((height,width))
 
             for t in tokens:
-                power = 4 if isxl else 1.2
-                add = attn[8*b:8*(b+1),:,t[0]:t[0]+len(t)]**power
+                power = 4 if is_sdxl else 1.2
+                add = attn[h*b:h*(b+1),:,t[0]:t[0]+len(t)]**power
                 add = torch.sum(add,dim = 2)
                 t = f"{t}-{b}"         
                 if t not in pmasks:
                     pmasks[t] = add
                 else:
                     if pmasks[t].shape[1] != add.shape[1]:
-                        add = add.view(8,height,width)
+                        add = add.view(h,height,width)
                         add = F.resize(add,pmaskshw[0])
+                        if add.numel() != pmasks[t].numel():
+                            add = add.view(pmasks[t].shape[0], 2, add.shape[1], add.shape[2]).sum(dim=1) / 2
                         add = add.reshape_as(pmasks[t])
-
                     pmasks[t] = pmasks[t] + add
 
     out = einsum('b i j, b j d -> b i d', attn, v)
@@ -112,10 +113,11 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
     return out
 
 def hook_forwards(self, p, remove=False):
+    self.need_hook = not remove
     if forge:
-        self.handle = hook_forwards_x(self, p.sd_model.forge_objects.unet.model, remove) 
+        hook_forwards_x(self, p.sd_model.forge_objects.unet.model, remove) 
     else:
-        self.handle = hook_forwards_x(self, p.sd_model.model.diffusion_model, remove)
+        hook_forwards_x(self, p.sd_model.model.diffusion_model, remove)
 
 def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
     self.hooked = True if not remove else False
@@ -190,7 +192,7 @@ def hook_forward(self, module):
 
                 i = i + 1
 
-                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step, isxl = self.isxl, negpip = negpip)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp =True,step = self.step, is_sdxl = self.is_sdxl, negpip = negpip)
 
                 if len(self.nt) == 1 and not pn:
                     db(self,"return out for NP")
@@ -221,7 +223,7 @@ def hook_forward(self, module):
                     # if i >= contexts.size()[1]: 
                     #     indlast = True
 
-                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, isxl = self.isxl,negpip = negpip)
+                    out = main_forward(module, x, context, mask, divide, self.isvanilla,userpp = self.pn, step = self.step, is_sdxl = self.is_sdxl,negpip = negpip)
                     db(self,f" dcell.breaks : {dcell.breaks}, dcell.ed : {dcell.ed}, dcell.st : {dcell.st}")
                     if len(self.nt) == 1 and not pn:
                         db(self,"return out for NP")
@@ -307,7 +309,7 @@ def hook_forward(self, module):
                 negpip = negpipdealer(i,pn) 
 
                 i = i + 1
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl, negpip = negpip)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, is_sdxl = self.is_sdxl, negpip = negpip)
 
                 if len(self.nt) == 1 and not pn:
                     db(self,"return out for NP")
@@ -342,7 +344,7 @@ def hook_forward(self, module):
                 i = i + 1
                 # if i >= contexts.size()[1]: 
                 #     indlast = True
-                out = main_forward(module, x, context, mask, divide, self.isvanilla, isxl = self.isxl)
+                out = main_forward(module, x, context, mask, divide, self.isvanilla, is_sdxl = self.is_sdxl)
                 if len(self.nt) == 1 and not pn:
                     db(self,"return out for NP")
                     return out
@@ -382,7 +384,7 @@ def hook_forward(self, module):
                 negpip = negpipdealer(self.condi,pn) if "La" in self.calc else negpipdealer(i,pn)
 
                 out = main_forward(module, x, context, mask, divide, self.isvanilla, userpp = userpp, width = dsw, height = dsh,
-                                                 tokens = self.pe, step = self.step, isxl = self.isxl, negpip = negpip, inhr = self.in_hr)
+                                                 tokens = self.pe, step = self.step, is_sdxl = self.is_sdxl, negpip = negpip, inhr = self.in_hr)
 
                 if (len(self.nt) == 1 and not pn) or ("Pro" in self.mode and "La" in self.calc):
                     db(self,"return out for NP or Latent")
@@ -469,7 +471,7 @@ def hook_forward(self, module):
 
         self.count += 1
 
-        limit = 70 if self.isxl else 16
+        limit = 70 if self.is_sdxl else 16
 
         if self.count == limit:
             self.pn = not self.pn
@@ -548,7 +550,7 @@ def reset_pmasks(self): # init parameters in every batch
 
 def savepmasks(self,processed):
     for mask ,th in zip(pmasks.values(),self.th):
-        img, _ , _= makepmask(mask, self.h, self.w,th, self.step)
+        img, _ , _= makepmask(mask, self.h, self.w,th, self.step, self.total_step, self.is_sdxl)
         processed.images.append(img)
     return processed
 
@@ -580,11 +582,11 @@ def hiresmask(masks,oh,ow,nh,nw,head,at = None,i = None):
         else:
             masks[key][i] = mask
 
-def makepmask(mask, h, w, th, step, bratio = 1): # make masks from attention cache return [for preview, for attention, for Latent]
-    th = th - step * 0.005
+def makepmask(mask, h, w, th, step, total_step, is_sdxl, bratio = 1): # make masks from attention cache return [for preview, for attention, for Latent]
+    th = th - step * 0.005 
     bratio = 1 - bratio
     mask = torch.mean(mask,dim=0)
-    mask = mask / mask.max().item()
+    mask = mask / mask.max().item() * 4 if is_sdxl else 1
     mask = torch.where(mask > th ,1,0)
     mask = mask.float()
     mask = mask.view(1,pmaskshw[0][0],pmaskshw[0][1]) 
