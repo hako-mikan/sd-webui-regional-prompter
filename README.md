@@ -431,6 +431,10 @@ Result
 ### Input type (struct c10::Half) and bias type (float) should be the same
 If you encounter above error while using LoRA with the MIDVRAM option or similar settings, please enable the **"Use LoHa or other"** option.
 
+### IndexError: list index out of range
+#### context = contexts[:,tll[i][0] * TOKENSCON:tll[i][1] * TOKENSCON,:]
+#### fil = self.filters[a + b*areas]
+This happens when the number of BREAKs doesn’t match the number of areas. If "use base" is checked, try unchecking it and see if that helps.  
 
 ## Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
