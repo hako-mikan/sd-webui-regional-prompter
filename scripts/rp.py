@@ -710,7 +710,7 @@ def commondealer(p, usecom, usencom, flip):
         ppl = ppl[1:]
         if flip:
             ppl = ppl[::-1]
-        prompt = f"{KEYBRK} ".join(ppl)
+        prompt = f" {KEYBRK} ".join(ppl)
         return prompt
 
     if usecom:
