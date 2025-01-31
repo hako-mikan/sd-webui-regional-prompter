@@ -261,8 +261,7 @@ class Script(modules.scripts.Script):
 
         self.used_prompt = ""
         self.logprops = ["active","mode","usebase","usecom","usencom","batch_size","is_sdxl","h","w","aratios",
-                        "divide","count","eq","pn","hr","pe","step","diff","used_prompt",
-                        "pt","ppt","nt","pnt"]
+                        "divide","count","eq","pn","hr","pe","step","diff","used_prompt"]
         self.log = {}
 
     def logger(self):
@@ -797,12 +796,7 @@ def tokendealer(self, p):
         tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.is_sdxl else shared.sd_model.cond_stage_model.tokenize_line
         self.flux = flux = False
         
-        
-        scheduled_np = prompt_parser.get_learned_conditioning_prompt_schedules(p.negative_prompts,p.steps)
-
     for pp in ppl:
-        scheduled_p = prompt_parser.get_learned_conditioning_prompt_schedules([pp] ,p.steps)
-        pprint(scheduled_p)
         tokens, tokensnum = tokenizer(pp)
         pt.append([padd, tokensnum // TOKENS + 1 + padd])
         ppt.append(tokensnum)
