@@ -95,6 +95,11 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
     self.step = params.sampling_step
     self.total_step = params.total_sampling_steps
 
+    self.pn = self.pn_s
+
+    if self.only_r:
+        return
+
     if "Pro" in self.mode:  # in Prompt mode, make masks from sum of attension maps
         if self.x == None : cloneparams(params,self) # return to step 0 if mask is ready
         self.pfirst = True

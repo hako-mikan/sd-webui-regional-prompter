@@ -229,6 +229,8 @@ class Script(modules.scripts.Script):
         self.count = 0
         self.eq = True
         self.pn = True
+        self.pn_s = True
+        self.only_r = False
         self.hr = False
         self.hr_scale = 0
         self.hr_w = 0
@@ -549,6 +551,7 @@ class Script(modules.scripts.Script):
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
                 unloadlorafowards(p)
+                denoiserdealer(self, True)
             else:
                 hook_forwards(self, p, remove = True)
                 setuploras(self)
@@ -559,7 +562,7 @@ class Script(modules.scripts.Script):
             self.ex = "Ex" in self.mode
             if not usebase : bratios = "0"
             hook_forwards(self, p)
-            denoiserdealer(self, p)
+            denoiserdealer(self, False)
 
         if OPTCOUT in options: commentouter(p)
         neighbor(self,p)                                                    #detect other extention
@@ -631,7 +634,7 @@ class Script(modules.scripts.Script):
                 if self.lora_applied: # SBM Don't override orig twice on batch calls.
                     pass
                 else:
-                    denoiserdealer(self, p)
+                    denoiserdealer(self, False)
                     self.lora_applied = True
                 #escape reload loras in hires-fix
 
@@ -668,7 +671,14 @@ def unloader(self,p):
 
     unloadlorafowards(p)
 
-def denoiserdealer(self, p):
+def denoiserdealer(self, only_r):
+    if not hasattr(self,"dr_callbacks"):
+        self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
+
+    if only_r:
+        self.only_r = True
+        return
+
     if self.calc =="Latent": # prompt mode use only denoiser callbacks
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
@@ -676,9 +686,6 @@ def denoiserdealer(self, p):
             shared.opts.batch_cond_uncond = False
         else:                    
             shared.batch_cond_uncond = False
-
-    if not hasattr(self,"dr_callbacks"):
-        self.dr_callbacks = on_cfg_denoiser(self.denoiser_callback)
 
     if self.diff:
         if not hasattr(self,"dd_callbacks"):
