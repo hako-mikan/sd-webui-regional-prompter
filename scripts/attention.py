@@ -509,8 +509,13 @@ def split_dims(xs, height, width, self = None):
     dsw = repeat_div(width,scale)
     if xs > dsh * dsw and hasattr(self,"nei_multi"):
         dsh, dsw = self.nei_multi[1], self.nei_multi[0] 
-        while dsh*dsw != xs:
-            dsh, dsw = dsh//2, dsw//2
+        max_iter = 20 
+        iter_count = 0
+        while dsh * dsw != xs and iter_count < max_iter:
+            dsh, dsw = dsh // 2, dsw // 2
+            iter_count += 1
+            if iter_count == max_iter:
+                raise RuntimeError(f"Error in Regional Pronpter, cannot resolve divisions{dsh}, {dsw}, {xs}")
 
     if self is not None:
         if self.debug : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
