@@ -379,7 +379,7 @@ def hook_forward(self, module):
                 db(self,f"tokens3 : {tl[0]*TOKENSCON}-{tl[1]*TOKENSCON}")
                 db(self,f"extra-tokens : {cnet_ext}")
 
-                userpp = self.pn and i == 0 and self.pfirst
+                userpp = pn and i == 0
 
                 negpip = negpipdealer(self.condi,pn) if "La" in self.calc else negpipdealer(i,pn)
 
@@ -476,7 +476,6 @@ def hook_forward(self, module):
         if self.count == limit:
             self.pn = not self.pn
             self.count = 0
-            self.pfirst = False
             self.condi += 1
         db(self,f"output : {ox.size()}")
         return ox

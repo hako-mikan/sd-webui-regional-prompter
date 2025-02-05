@@ -510,6 +510,7 @@ class Script(modules.scripts.Script):
         if forge or reforge:
             self.isvanilla = not self.isvanilla
             self.pn = False
+            self.pn_s = False
 
         if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
             # Testing shows a round down occurs in model.
@@ -690,7 +691,8 @@ def denoiserdealer(self, only_r):
     if self.diff:
         if not hasattr(self,"dd_callbacks"):
             self.dd_callbacks = on_cfg_denoised(self.denoised_callback)
-
+        if forge or reforge:
+            shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
 
 ############################################################
 ##### prompts, tokens
