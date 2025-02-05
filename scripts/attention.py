@@ -591,8 +591,8 @@ def makepmask(mask, h, w, th, step, total_step, is_sdxl, bratio = 1): # make mas
     th = th - step * 0.005 
     bratio = 1 - bratio
     mask = torch.mean(mask,dim=0)
-    mask = mask / mask.max().item() * 4 if is_sdxl else 1
-    mask = torch.where(mask > th ,1,0)
+    mask = mask / mask.max().item() * (4 if is_sdxl else 1)
+    mask = torch.where(mask > th, torch.ones_like(mask), torch.zeros_like(mask))
     mask = mask.float()
     mask = mask.view(1,pmaskshw[0][0],pmaskshw[0][1]) 
     img = torchvision.transforms.functional.to_pil_image(mask)
