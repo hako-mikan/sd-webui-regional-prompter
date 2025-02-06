@@ -9,7 +9,10 @@ from PIL import Image
 import imageio
 import random
 import numpy as np
-
+import time
+import glob
+import time
+import re
 
 from modules.processing import process_images
 from modules.shared import cmd_opts, total_tqdm, state
@@ -50,9 +53,12 @@ class Script(scripts.Script):
             gifpathd = gr.Textbox(label="Anime gif output directory")
             gifpathf = gr.Textbox(label="Anime gif output filename")
 
-        return [options, duration, plans, step, addout, batch_size, mp4pathd, mp4pathf, gifpathd, gifpathf]
+        with gr.Row(visible=True):
+            add_filename = gr.Textbox(label="Add text to filename")
 
-    def run(self, p, options, duration, plans, step, addout, batch, mp4pathd, mp4pathf, gifpathd, gifpathf):
+        return [options, duration, plans, step, addout, batch_size, mp4pathd, mp4pathf, gifpathd, gifpathf, add_filename]
+
+    def run(self, p, options, duration, plans, step, addout, batch, mp4pathd, mp4pathf, gifpathd, gifpathf, add_filename):
         self.__init__()
 
         p.rps_diff = True
@@ -143,7 +149,7 @@ class Script(scripts.Script):
 
         if p.seed == -1 : p.seed = int(random.randrange(4294967294))
 
-        seed = p.seed
+        timestamp_start = time.time()
 
         for prompt, prompt_hr in zip(all_prompts,all_prompts_hr):
             if type(prompt) == list:
@@ -163,8 +169,59 @@ class Script(scripts.Script):
             processed = process_images(p)
             results[prompt] = processed.images[0]
             if output is None :output = processed
-            else:output.images.extend(processed.images)
+            else:
+                if add_filename != "":
+                    def find_latest_image(directory, start_time):
+                        image_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff")
+                        latest_file = None
+                        second_latest_file = None
+                        latest_mtime = start_time
+                        second_latest_mtime = start_time
+                        
+                        # 再帰的にすべてのファイルを検索
+                        for filepath in glob.iglob(os.path.join(directory, "**"), recursive=True):
+                            if os.path.isfile(filepath) and filepath.lower().endswith(image_extensions):
+                                mtime = os.path.getmtime(filepath)
+                                if mtime > latest_mtime:
+                                    second_latest_file = latest_file
+                                    second_latest_mtime = latest_mtime
+                                    latest_file = filepath
+                                    latest_mtime = mtime
+                                elif mtime > second_latest_mtime:
+                                    second_latest_file = filepath
+                                    second_latest_mtime = mtime
+                        
+                        return latest_file, second_latest_file
 
+                    latest_image, second_latest_image = find_latest_image(p.outpath_samples, timestamp_start)
+
+                    if latest_image:
+                        print("Latest image file:", latest_image)
+                        directory, filename = os.path.split(latest_image)
+                        name, ext = os.path.splitext(filename)
+                        
+                        new_filename = f"{name}{add_filename}{ext}"
+                        
+                        if second_latest_image:
+                            second_name, _ = os.path.splitext(os.path.basename(second_latest_image))
+
+                            match = re.match(r"(\d+)-(.+)", name)
+                            second_match = re.match(r"(\d+)-(.+)", second_name)
+                            
+                            if match and second_match and match.group(2) == second_match.group(2):
+                                base_name = second_name
+                            else:
+                                base_name = name                            
+                            
+                            if f"{add_filename}" in second_name:
+                                add_text_count = len(re.findall(fr"{add_filename}", second_name))
+                                new_filename = f"{base_name}{add_filename}{add_text_count}{ext}"
+                            else:
+                                new_filename = f"{base_name}{add_filename}{ext}"
+                        
+                        new_filepath = os.path.join(directory, new_filename)
+                        os.rename(latest_image, new_filepath)
+                output.images.extend(processed.images)
 
         all_result = []
 
