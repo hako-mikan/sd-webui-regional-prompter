@@ -9,11 +9,16 @@ from scripts.regions import floatdef
 from scripts.attention import makerrandman
 
 try:
-    from modules.ui import versions_html
-    forge = "forge" in versions_html()
-    reforge = "reForge" in versions_html()
+    from backend import memory_management
+    forge = True
+    reforge = False
 except:
-    forge = reforge = False
+    try:
+        from modules.ui import versions_html
+        reforge = "reForge" in versions_html()
+        forge = False
+    except:
+        forge = reforge = False
 
 if forge:
     from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg

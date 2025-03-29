@@ -24,12 +24,20 @@ import base64
 from packaging import version
 from functools import wraps
 
+OPT_RP_DISABLE_IMAGE_EDITOR = "regional_prompter_disable_iamgeeditor"
+disable_image_editor = getattr(shared.opts,OPT_RP_DISABLE_IMAGE_EDITOR, False)
+
 try:
-    from modules.ui import versions_html
-    forge = "forge" in versions_html()
-    reforge = "reForge" in versions_html()
+    from backend import memory_management
+    forge = True
+    reforge = False
 except:
-    forge = reforge = False
+    try:
+        from modules.ui import versions_html
+        reforge = "reForge" in versions_html()
+        forge = False
+    except:
+        forge = reforge = False
 
 print(f"Forge: {forge}, reForge: {reforge}")
 
@@ -103,9 +111,13 @@ def ui_tab(mode, submode, eladd):
             xmode = gr.Radio(label="Mask mode", choices=submode, value="Mask", type="value", interactive=True,elem_id="RP_mask_mode" + eladd)
         with gr.Row(): # CREEP: Css magic to make the canvas bigger? I think it's in style.css: #img2maskimg -> height.
             if IS_GRADIO_4:
-                polymask = gr.ImageEditor(elem_id="polymask" + eladd, image_mode = "RGB",canvas_size = (512,512),
-                      source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch",
-                      brush = gr.Brush(colors=["#804040"], color_mode='fixed'))#.style(height=480)
+                if disable_image_editor:
+                    polymask = gr.Image(label = "Image",elem_id="polymask" + eladd,
+                                source = "upload", mirror_webcam = False, type = "numpy")#.style(height=480)
+                else:
+                    polymask = gr.ImageEditor(elem_id="polymask" + eladd, image_mode = "RGB",canvas_size = (512,512),
+                        source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch",
+                        brush = gr.Brush(colors=["#804040"], color_mode='fixed'))#.style(height=480)
             else:
                 polymask = gr.Image(label = "Do not upload here until bugfix",elem_id="polymask" + eladd,
                                 source = "upload", mirror_webcam = False, type = "numpy", tool = "sketch")#.style(height=480)
@@ -1109,9 +1121,9 @@ EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
 EXTSETS = [
-("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
+#("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
-
+(OPT_RP_DISABLE_IMAGE_EDITOR, "Disable ImageEditor", "check", dict()),
 ]
 # Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
 # (id: def)

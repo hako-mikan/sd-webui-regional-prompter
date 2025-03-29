@@ -9,11 +9,16 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 
 try:
-    from modules.ui import versions_html
-    forge = "forge" in versions_html()
-    reforge = "reForge" in versions_html()
+    from backend import memory_management
+    forge = True
+    reforge = False
 except:
-    forge = reforge = False
+    try:
+        from modules.ui import versions_html
+        reforge = "reForge" in versions_html()
+        forge = False
+    except:
+        forge = reforge = False
 
 TOKENSCON = 77
 TOKENS = 75
