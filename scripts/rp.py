@@ -25,7 +25,7 @@ from packaging import version
 from functools import wraps
 
 OPT_RP_DISABLE_IMAGE_EDITOR = "regional_prompter_disable_iamgeeditor"
-disable_image_editor = getattr(shared.opts,OPT_RP_DISABLE_IMAGE_EDITOR, False)
+disable_image_editor = getattr(shared.opts,"regprp_" + OPT_RP_DISABLE_IMAGE_EDITOR, False)
 
 try:
     from backend import memory_management
