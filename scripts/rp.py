@@ -27,6 +27,9 @@ from functools import wraps
 OPT_RP_DISABLE_IMAGE_EDITOR = "regional_prompter_disable_iamgeeditor"
 disable_image_editor = getattr(shared.opts,"regprp_" + OPT_RP_DISABLE_IMAGE_EDITOR, False)
 
+USE_OLD_ACTIVE = "old_active_check"
+use_old_active = getattr(shared.opts,"regprp_" + USE_OLD_ACTIVE, False)
+
 try:
     from backend import memory_management
     forge = True
@@ -305,7 +308,8 @@ class Script(modules.scripts.Script):
 
         with InputAccordion(False, label=self.title()) as active:
             with gr.Row():
-                #active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
+                if use_old_active:
+                    active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
                 urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
             with gr.Row():
                 #smode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
@@ -1117,6 +1121,7 @@ def initpresets(filepath):
 #####################################################
 ##### Global settings
 
+
 EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
@@ -1124,6 +1129,7 @@ EXTSETS = [
 #("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
 (OPT_RP_DISABLE_IMAGE_EDITOR, "Disable ImageEditor", "check", dict()),
+(USE_OLD_ACTIVE, "Use old active check box", "check", dict()),
 ]
 # Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
 # (id: def)
