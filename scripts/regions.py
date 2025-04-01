@@ -598,6 +598,8 @@ def save_mask(img, flpath):
     Cv's colour scheme is an annoyance, but avoiding yet another import. 
     """
     # Cv's colour scheme is annoying.
+    if isinstance(img, dict):
+        img = img.get("layers", None)[0] if "layers" in img else img.get("image", None)
 
     if VARIANT != 0: # Always save without variance.
         img = img[:-VARIANT,:-VARIANT,:]

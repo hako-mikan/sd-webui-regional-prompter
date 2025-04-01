@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
-from modules import paths, scripts, shared, extra_networks, prompt_parser
+from modules import paths, scripts, shared, extra_networks, prompt_parser, launch_utils
 from modules.processing import Processed
 from modules.script_callbacks import (on_ui_settings, CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import json  # Presets.
@@ -27,18 +27,11 @@ from functools import wraps
 OPT_RP_DISABLE_IMAGE_EDITOR = "regional_prompter_disable_iamgeeditor"
 disable_image_editor = getattr(shared.opts,"regprp_" + OPT_RP_DISABLE_IMAGE_EDITOR, False)
 
-try:
-    from backend import memory_management
-    forge = True
-    reforge = False
-except:
-    try:
-        from modules.ui import versions_html
-        reforge = "reForge" in versions_html()
-        forge = False
-    except:
-        forge = reforge = False
+USE_OLD_ACTIVE = "old_active_check"
+use_old_active = getattr(shared.opts,"regprp_" + USE_OLD_ACTIVE, False)
 
+forge = launch_utils.git_tag()[0:2] == "f2"
+reforge = launch_utils.git_tag()[0:2] == "f1"
 print(f"Forge: {forge}, reForge: {reforge}")
 
 KEYBRK_R = "RP_TEMP_REPLACE"
@@ -131,6 +124,16 @@ def ui_tab(mode, submode, eladd):
                 canvas_width.change(fn=lambda x, y:gr.update(canvas_size = (x,y)),inputs = [canvas_width, canvas_height], outputs = [polymask])
                 canvas_height.change(fn=lambda x, y:gr.update(canvas_size = (x,y)),inputs = [canvas_width, canvas_height], outputs = [polymask])
                 showmask = uploadmask = None
+                
+                with gr.Column():
+                    save_mask_btn = gr.Button(value="Save Mask")
+                    mask_filename = gr.Textbox(label="Mask Filename",interactive=True,visible=True,elem_id="RP_Mask_Filename" + eladd)
+                                
+                def save_mask_btn_click(_mask, _filename):
+                    save_mask(_mask, os.path.join(PTPRESET, _filename + ".png"))
+                
+                save_mask_btn.click(fn=save_mask_btn_click, inputs=[polymask, mask_filename])   
+                
             else:           
                 with gr.Column():
                     num = gr.Slider(label="Region", minimum=-1, maximum=MAXCOLREG, step=1, value=1,elem_id="RP_mask_region" + eladd)
@@ -148,6 +151,7 @@ def ui_tab(mode, submode, eladd):
                 # btn2.click(detect_mask, inputs = [polymask,num], outputs = [showmask])
                 cbtn.click(fn=create_canvas, inputs=[canvas_height, canvas_width], outputs=[polymask])   
                 uploadmask.upload(fn = draw_image, inputs = [uploadmask], outputs = [polymask, uploadmask, showmask])
+
 
             vret = [xmode, polymask, num, canvas_width, canvas_height, showmask, uploadmask]
         
@@ -305,7 +309,8 @@ class Script(modules.scripts.Script):
 
         with InputAccordion(False, label=self.title()) as active:
             with gr.Row():
-                #active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
+                if use_old_active:
+                    active = gr.Checkbox(value=False, label="Active",interactive=True,elem_id="RP_active" + eladd)
                 urlguide = gr.HTML(value = fhurl(GUIDEURL, "Usage guide"))
             with gr.Row():
                 #smode = gr.Radio(label="Divide mode", choices=["Horizontal", "Vertical","Mask","Prompt","Prompt-Ex"], value="Horizontal",  type="value", interactive=True)
@@ -457,9 +462,18 @@ class Script(modules.scripts.Script):
                     print("Error: The mask image is either not a valid path or not a valid base64 encoded image.")
             if image is not None:
                 polymask,_,_ = draw_image(np.array(image.convert('RGB')))
+                
         elif isinstance(polymask, dict):
-            polymask = polymask.get("layers", None)[0] if IS_GRADIO_4 else polymask.get("image", None)
-            polymask,_,_ = draw_image(polymask)
+            if IS_GRADIO_4:
+                composite = polymask.get("composite", None)
+                if composite is not None and isinstance(composite, np.ndarray) and not np.any(composite):  # すべて0なら False
+                    polymask = polymask.get("layers", None)[0]  # compositeが全ゼロ → layers を使う
+                else:
+                    polymask = composite  # composite に値がある → composite を使う
+            else:
+                polymask = polymask.get("image", None)
+
+            polymask, _, _ = draw_image(polymask)
 
         if rp_selected_tab == "Nope": rp_selected_tab = "Matrix"
 
@@ -1117,6 +1131,7 @@ def initpresets(filepath):
 #####################################################
 ##### Global settings
 
+
 EXTKEY = "regprp"
 EXTNAME = "Regional Prompter"
 # (id, label, type, extra_parms)
@@ -1124,6 +1139,7 @@ EXTSETS = [
 #("debug", "(PLACEHOLDER, USE THE ONE IN 2IMG) Enable debug mode", "check", dict()),
 ("hidepmask", "Hide subprompt masks in prompt mode", "check", dict()),
 (OPT_RP_DISABLE_IMAGE_EDITOR, "Disable ImageEditor", "check", dict()),
+(USE_OLD_ACTIVE, "Use old active check box", "check", dict()),
 ]
 # Dynamically constructed list of default values, because shared doesn't allocate a value automatically.
 # (id: def)
