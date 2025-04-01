@@ -8,17 +8,9 @@ from inspect import isfunction
 from torch import nn, einsum
 from einops import rearrange, repeat
 
-try:
-    from backend import memory_management
-    forge = True
-    reforge = False
-except:
-    try:
-        from modules.ui import versions_html
-        reforge = "reForge" in versions_html()
-        forge = False
-    except:
-        forge = reforge = False
+from modules import launch_utils
+forge = launch_utils.git_tag()[0:2] == "f2"
+reforge = launch_utils.git_tag()[0:2] == "f1"
 
 TOKENSCON = 77
 TOKENS = 75

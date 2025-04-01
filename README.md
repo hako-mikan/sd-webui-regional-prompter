@@ -357,6 +357,16 @@ Here are samples of a simple prompt, two loras with negative te/unet values per 
 
 If you come across any useful insights on the phenomenon, do share.
 
+## Settings
+###Hide subprompt masks in prompt mode
+In prompt mode, don't show the generated mask.
+
+###Disable ImageEditor
+Disable the mask editor (this is to fix an issue where CPU usage hits 100% in some browsers).
+
+###Use old active check box
+Use the old Active button (when using TabExtension).
+
 ## How to Use via API
 The following format is used when utilizing this extension via the API.
 
