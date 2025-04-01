@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import modules.ui
 import modules # SBM Apparently, basedir only works when accessed directly.
-from modules import paths, scripts, shared, extra_networks, prompt_parser
+from modules import paths, scripts, shared, extra_networks, prompt_parser, launch_utils
 from modules.processing import Processed
 from modules.script_callbacks import (on_ui_settings, CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import json  # Presets.
@@ -30,18 +30,8 @@ disable_image_editor = getattr(shared.opts,"regprp_" + OPT_RP_DISABLE_IMAGE_EDIT
 USE_OLD_ACTIVE = "old_active_check"
 use_old_active = getattr(shared.opts,"regprp_" + USE_OLD_ACTIVE, False)
 
-try:
-    from backend import memory_management
-    forge = True
-    reforge = False
-except:
-    try:
-        from modules.ui import versions_html
-        reforge = "reForge" in versions_html()
-        forge = False
-    except:
-        forge = reforge = False
-
+forge = launch_utils.git_tag()[0:2] == "f2"
+reforge = launch_utils.git_tag()[0:2] == "f1"
 print(f"Forge: {forge}, reForge: {reforge}")
 
 KEYBRK_R = "RP_TEMP_REPLACE"

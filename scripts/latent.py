@@ -8,17 +8,9 @@ import scripts.attention as att
 from scripts.regions import floatdef
 from scripts.attention import makerrandman
 
-try:
-    from backend import memory_management
-    forge = True
-    reforge = False
-except:
-    try:
-        from modules.ui import versions_html
-        reforge = "reForge" in versions_html()
-        forge = False
-    except:
-        forge = reforge = False
+from modules import launch_utils
+forge = launch_utils.git_tag()[0:2] == "f2"
+reforge = launch_utils.git_tag()[0:2] == "f1"
 
 if forge:
     from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg
