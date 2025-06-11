@@ -10,7 +10,7 @@ from scripts.attention import makerrandman
 
 from modules import launch_utils
 forge = launch_utils.git_tag()[0:2] == "f2"
-reforge = launch_utils.git_tag()[0:2] == "f1"
+reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag() == "classic"
 
 if forge:
     from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg
