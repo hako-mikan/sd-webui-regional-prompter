@@ -666,7 +666,7 @@ class Script(modules.scripts.Script):
                 #escape reload loras in hires-fix
 
     def postprocess(self, p, processed, *args):
-        if self.active : 
+        if self.active and not getattr(shared.cmd_opts,"no_prompt_history", False): 
             with open(os.path.join(paths.data_path, "params.txt"), "w", encoding="utf8") as file:
                 processedx = Processed(p, [], p.seed, "")
                 file.write(processedx.infotext(p, 0))
