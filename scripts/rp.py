@@ -533,7 +533,7 @@ class Script(modules.scripts.Script):
 
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
-        if forge or reforge:
+        if forge:
             self.isvanilla = not self.isvanilla
             self.pn = False
             self.pn_s = False
