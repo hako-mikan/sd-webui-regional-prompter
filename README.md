@@ -35,39 +35,6 @@ LoRAの種類別の使用条件です。
 - **LoRA**: 速度低下なく適用可能です。
 - **LoCon/LoHa**: "Use LoHa or other" オプションを有効にすると使用できますが、生成速度が遅くなります。この制約はWeb-UIの仕様に基づいています。Forgeの場合制限はありません。
 
-## Updates 2025.01.27.0100 (JST)  
-- Fixed several bugs (related to Forge)  
-- Added support for Latent Mode and region-specific LoRA in Forge (only basic LoRA has been tested so far).  
-- いくつかのバグフィックス(Forge関連)
-- ForgeにおいてLatentモード対応、領域別LoRA対応（基本的なLoRAしか試してません。）
-
-### Updates
-- モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
-(日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
-- `,`,`;`を入れ替えるオプションを追加
-
-- Split Mode name changed, `Horizontal` -> `columns`, `Vertical` -> `Rows`
-- flip `,`,`;` option added
-
-- add LoRA stop step
-LoRAを適用するのをやめるstepを指定できます。10 step程度で停止することで浸食、ノイズ等の防止、生成速度の向上を期待できます。
-You can specify the step at which to stop applying LoRA. By stopping around 10 steps, you can expect to prevent erosion and noise, and to improve generation speed.
-(0に設定すると無効になります。0 is disable)
-
-- support SDXL
-- support web-ui 1.5
-
-- add [guide for API users](#how-to-use-via-api)
-
-- prompt mode improved
-- プロンプトモードの動作が改善しました  
-(The process has been adjusted to generate masks in three steps, and to recommence generation from the first stage./3ステップでマスクを生成し、そこから生成を1stepからやり直すよう修正しました)
-
-- New feature : [regions by inpaint](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
-- New feature : [regions by prompt](#divprompt) ([Tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_en.md)) 
-- 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
-- 新機能 : [プロンプトによる領域指定](#divprompt) ([チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md))
-
 
 # Overview
 Latent couple extension performs U-Net calculations on a per-prompt basis, but this extension performs per-prompt calculations inside U-Net. See [here(Japanese)](https://note.com/gcem156/n/nb3d516e376d7) for details. Thanks to furusu for initiating the idea. Additional, Latent mode also supported.
@@ -77,9 +44,6 @@ Latent couple extension performs U-Net calculations on a per-prompt basis, but t
 - [Latent mode(LoRA)](#latent) 
 - [regions by inpaint](#inpaint) 
 - [regions by prompt](#divprompt) 
-
-		
-																																																																																								 
 
 ## Usage
 This section explains how to use the following image, explaining how to create the following image.  
@@ -115,20 +79,11 @@ When using base prompt, the first prompt separated by `BREAK` is treated as the 
 Therefore, when this option is enabled, one extra `BREAK`-separated prompt is required compared to Divide ratios.
 
 Automatically turned on when `ADDBASE` is entered.
-																																				   
 
 ### Divide ratio
 If you enter 1,1,1, the image will be divided into three equal regions (33,3%, 33,3%, 33,3%); if you enter 3,1,1, the image will be divided into 60%, 20%, and 20%. Fractions can also be entered: 0.1,0.1,0.1 is equivalent to 1,1,1. For greatest accuracy, enter pixel values corresponding to height / width (vertical / horizontal mode respectively), eg 300,100,112 -> 512.
 
-					  
-				
-										  
-		   
-																		
-
 Using a `;` separator will automatically activate 2D region mode.
-													  
-																									  
 
 ### Base ratio
 Sets the ratio of the base prompt; if base ratio is set to 0.2, then resulting images will consist of `20%*BASE_PROMPT + 80%*REGION_PROMPT`. It can also be specified for each region, in the same way as "Divide ratio" - 0.2, 0.3, 0.5, etc. If a single value is entered, the same value will be applied to all areas.
@@ -191,22 +146,9 @@ Divide Ratio : 1,2,1,1;2,4,6
 Base Ratio : 
 ```
 
-![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)
+![2d](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/2d.jpg)									
 
-																		 
-																																					
-																																																								   
-																																			 
-																																																											  
-																																																											  
-																																			  
-																																																																  
-																																																																																
-																																																																																																																																			
-
-																												
-
-## <a id="visualize">Visualise and make template</a>
+## <a id="visualize">visualize and make template</a>
 Areas can be visualized and templates for prompts can be created.
 
 ![tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/tutorial.jpg)
@@ -230,8 +172,10 @@ This is an example of an area using 1,1;2,3,2;3,2,3. In Columns, it would look l
 In Rows, it would appear as follows:  
 ![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle2.png)  
 When the flip option is enabled in Rows, it would appear as follows:  
-![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle3.png)	  																																							  
- 
+![flip](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/imgs/msapmle3.png)	  			
+
+"Overlay ratio" is primarily used in inpaint. By loading an image intended for inpaint on the visualize screen, you can view the regions. For further details, please refer to the following [issue](https://github.com/hako-mikan/sd-webui-regional-prompter/issues/234).
+
 
 ## <a id="inpaint">Mask regions aka inpaint+ (experimental function)</a>
 It is now possible to specify regions using either multiple hand drawn masks or an uploaded image containing said masks (more on that later).
@@ -284,7 +228,6 @@ baseprompt target1 target2 BREAK
 effect1, target1 BREAK
 effect2 ,target2
 ```
-																																																																																			 
 
 First, write the base prompt. In the base prompt, write the words (target1, target2) for which you want to create a mask. Next, separate them with BREAK. Next, write the prompt corresponding to target1. Then enter a comma and write target1. The order of the targets in the base prompt and the order of the BREAK-separated targets can be back to back.
 
@@ -449,6 +392,40 @@ This happens when the number of BREAKs doesn’t match the number of areas. If "
 ## Acknowledgments
 I thank [furusu](https://note.com/gcem156) for suggesting the Attention couple, [opparco](https://github.com/opparco) for suggesting the Latent couple, and [Symbiomatrix](https://github.com/Symbiomatrix) for helping to create the 2D generation code.
 
+
+
+## Updates 2025.01.27.0100 (JST)  
+- Fixed several bugs (related to Forge)  
+- Added support for Latent Mode and region-specific LoRA in Forge (only basic LoRA has been tested so far).  
+- いくつかのバグフィックス(Forge関連)
+- ForgeにおいてLatentモード対応、領域別LoRA対応（基本的なLoRAしか試してません。）
+
+### Updates
+- モード名が変更になりました。`Horizontal` -> `columns`, `Vertical` -> `Rows`
+(日本語で横に分割を英訳したSplit Horizontalは英語圏では逆の意味になるようです。水平線「で」分割するという意味になるそう)
+- `,`,`;`を入れ替えるオプションを追加
+
+- Split Mode name changed, `Horizontal` -> `columns`, `Vertical` -> `Rows`
+- flip `,`,`;` option added
+
+- add LoRA stop step
+LoRAを適用するのをやめるstepを指定できます。10 step程度で停止することで浸食、ノイズ等の防止、生成速度の向上を期待できます。
+You can specify the step at which to stop applying LoRA. By stopping around 10 steps, you can expect to prevent erosion and noise, and to improve generation speed.
+(0に設定すると無効になります。0 is disable)
+
+- support SDXL
+- support web-ui 1.5
+
+- add [guide for API users](#how-to-use-via-api)
+
+- prompt mode improved
+- プロンプトモードの動作が改善しました  
+(The process has been adjusted to generate masks in three steps, and to recommence generation from the first stage./3ステップでマスクを生成し、そこから生成を1stepからやり直すよう修正しました)
+
+- New feature : [regions by inpaint](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
+- New feature : [regions by prompt](#divprompt) ([Tutorial](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_en.md)) 
+- 新機能 : [インペイントによる領域指定](#inpaint) (thanks [Symbiomatrix](https://github.com/Symbiomatrix))
+- 新機能 : [プロンプトによる領域指定](#divprompt) ([チュートリアル](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/prompt_ja.md))
 
 ## Updates
 - New feature, "2D-Region"
