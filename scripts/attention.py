@@ -16,7 +16,7 @@ TOKENSCON = 77
 TOKENS = 75
 
 def db(self,text):
-    if self.debug:
+    if self.debug and self.count == 0:
         print(text)
 
 # helper functions from LDM
@@ -129,7 +129,7 @@ def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
 
 def hook_forward(self, module):
     def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None, transformer_options=None):
-        if self.debug:
+        if self.debug and self.count == 0:
             print("input : ", x.size())
             print("tokens : ", context.size())
             print("module : ", getattr(module, self.layer_name,None))
@@ -243,7 +243,7 @@ def hook_forward(self, module):
                     if "Horizontal" in self.mode:
                         out = out[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
                                     int(dsw*dcell.st) + addin:int(dsw*dcell.ed),:]
-                        if self.debug : print(f"{int(dsh*drow.st) + addout}:{int(dsh*drow.ed)},{int(dsw*dcell.st) + addin}:{int(dsw*dcell.ed)}")
+                        if self.debug and self.count == 0: print(f"{int(dsh*drow.st) + addout}:{int(dsh*drow.ed)},{int(dsw*dcell.st) + addin}:{int(dsw*dcell.ed)}")
                         if self.usebase : 
                             # outb_t = outb[:,:,int(dsw*drow.st):int(dsw*drow.ed),:].clone()
                             outb_t = outb[:,int(dsh*drow.st) + addout:int(dsh*drow.ed),
@@ -261,7 +261,7 @@ def hook_forward(self, module):
                     db(self,f"sumin:{sumin},sumout:{sumout},dsh:{dsh},dsw:{dsw}")
             
                     v_states.append(out)
-                    if self.debug : 
+                    if self.debug and self.count == 0: 
                         for h in v_states:
                             print(h.size())
                             
@@ -395,7 +395,7 @@ def hook_forward(self, module):
                 else:
                     h_states.append(out)
 
-            if self.debug:
+            if self.debug and self.count == 0:
                 for h in h_states :
                     print(f"divided : {h.size()}")
                 print(pmaskshw)
@@ -514,7 +514,7 @@ def split_dims(xs, height, width, self = None):
                 raise RuntimeError(f"Error in Regional Pronpter, cannot resolve divisions{dsh}, {dsw}, {xs}")
 
     if self is not None:
-        if self.debug : print(scale,dsh,dsw,dsh*dsw,xs, height, width)
+        if self.debug and self.count == 0: print(scale,dsh,dsw,dsh*dsw,xs, height, width)
 
     return dsh,dsw
 

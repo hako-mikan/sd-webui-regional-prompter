@@ -535,8 +535,6 @@ class Script(modules.scripts.Script):
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
         if forge:
             self.isvanilla = not self.isvanilla
-            self.pn = False
-            self.pn_s = False
 
         if self.h % ATTNSCALE != 0 or self.w % ATTNSCALE != 0:
             # Testing shows a round down occurs in model.
