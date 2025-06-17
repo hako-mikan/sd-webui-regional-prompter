@@ -1,4 +1,4 @@
-function setupAccordion(accordion) {
+function setupAccordion_m(accordion) {
     // 既に処理済みの場合はスキップ
     if (accordion.getAttribute('data-processed') === 'true') {
         return;
@@ -51,6 +51,6 @@ function setupAccordion(accordion) {
 
 onUiLoaded(function() {
     for (var accordion of gradioApp().querySelectorAll('.input-accordion-m')) {
-        setupAccordion(accordion);
+        setupAccordion_m(accordion);
     }
 });
