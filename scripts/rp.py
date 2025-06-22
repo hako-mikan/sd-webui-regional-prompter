@@ -370,9 +370,15 @@ class Script(modules.scripts.Script):
                 modes = ["Matrix", "Mask", "Prompt"]
                 if mode not in modes: mode = "Matrix"
                 return gr.Tabs.update(selected="t"+mode)
+            
+            def options_dealer(options_text):
+                if options_text == "No Options":
+                    return []
+                else:
+                    return [y for y in options_text.split(",")]
 
             mode.change(fn = changetabs,inputs=[mode],outputs=[tabs])
-            options_text.change(fn=lambda x: [y for y in x.split(",")], inputs=[options_text], outputs=[options])
+            options_text.change(fn=options_dealer, inputs=[options_text], outputs=[options])
             settings = [rp_selected_tab, mmode, xmode, pmode, ratios, baseratios, usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper]
         
         self.infotext_fields = [
@@ -512,7 +518,7 @@ class Script(modules.scripts.Script):
             "RP Use Base":usebase,
             "RP Use Common":usecom,
             "RP Use Ncommon": usencom,
-            "RP Options" : ",".join(options),
+            "RP Options" : ",".join(options) if options else "No Options",
             "RP LoRA Neg Te Ratios": lnter,
             "RP LoRA Neg U Ratios": lnur,
             "RP threshold": threshold,
