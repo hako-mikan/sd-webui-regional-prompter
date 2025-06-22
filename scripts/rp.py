@@ -246,6 +246,8 @@ class Script(modules.scripts.Script):
         self.eq = True
         self.pn = True
         self.pn_s = True
+        self.cshape = None
+        self.ucshape = None
         self.only_r = False
         self.hr = False
         self.hr_scale = 0

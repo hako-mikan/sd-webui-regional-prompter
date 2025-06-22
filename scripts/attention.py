@@ -129,10 +129,12 @@ def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
 
 def hook_forward(self, module):
     def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None, transformer_options=None):
+        pndealer(self,context)
         if self.debug and self.count == 0:
-            print("input : ", x.size())
+            print("\ninput : ", x.size())
             print("tokens : ", context.size())
             print("module : ", getattr(module, self.layer_name,None))
+            print("Pos/Neg:", self.pn)
         if "conds" in self.log:
             if self.log["conds"] != context.size():
                 self.log["conds2"] = context.size()
@@ -627,3 +629,13 @@ def negpipdealer(i,pn):
             return None
     else:
         return None
+
+def pndealer(self,context):
+    if context is None:return
+    if context.shape[0] == self.batch_size * 2:
+        return
+    shape = context.shape[1]
+    if shape == self.cshape and shape != self.ucshape:
+        self.pn = True
+    if shape == self.ucshape and shape != self.cshape:
+        self.pn = False   

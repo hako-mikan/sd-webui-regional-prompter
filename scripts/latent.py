@@ -94,6 +94,18 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
 
     self.pn = self.pn_s
 
+    if hasattr(params,"text_cond"):
+        if "DictWithShape" in params.text_cond.__class__.__name__:
+            self.cshape = params.text_cond[list(params.text_cond.keys())[0]].shape[1]
+        else:
+            self.cshape = params.text_cond.shape[1]
+
+    if hasattr(params,"text_uncond"):
+        if "DictWithShape" in params.text_uncond.__class__.__name__:
+            self.ucshape = params.text_uncond[list(params.text_uncond.keys())[0]].shape[1]
+        else:
+            self.ucshape = params.text_uncond.shape[1]
+
     if self.only_r and not self.diff:
         return
 
