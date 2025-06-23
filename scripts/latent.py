@@ -94,19 +94,22 @@ def denoiser_callback_s(self, params: CFGDenoiserParams):
 
     self.pn = self.pn_s
 
-    if hasattr(params,"text_cond"):
+    if hasattr(params,"text_cond") and params.text_cond is not None:
         if "DictWithShape" in params.text_cond.__class__.__name__:
             self.cshape = params.text_cond[list(params.text_cond.keys())[0]].shape[1]
         else:
             self.cshape = params.text_cond.shape[1]
 
-    if hasattr(params,"text_uncond"):
+    if hasattr(params,"text_uncond") and params.text_uncond is not None:
         if "DictWithShape" in params.text_uncond.__class__.__name__:
             self.ucshape = params.text_uncond[list(params.text_uncond.keys())[0]].shape[1]
         else:
             self.ucshape = params.text_uncond.shape[1]
 
     if self.only_r and not self.diff:
+        return
+
+    if self.hr_returner():
         return
 
     if "Pro" in self.mode:  # in Prompt mode, make masks from sum of attension maps
@@ -270,7 +273,7 @@ def denoised_callback_s(p1, p2 = None, p3 = None):
 
         for b in range(batch):
             for a in range(areas) :
-                fil = self.filters[a + b*areas]
+                fil = self.filters[a + b*areas] if not self.hr_returner() else 1
                 if self.debug : print(f"x = {x.size()}i = {a + b*areas}, j = {b + a*batch}, cond = {a + b*areas},filsum = {fil if type(fil) is int else torch.sum(fil)}, uncon = {x.size()[0]+(b-batch)}")
                 x[a + b * areas, :, :, :] =  xt[b + a*batch, :, :, :] * fil + x[x.size()[0]+(b-batch), :, :, :] * (1 - fil)
 
@@ -739,7 +742,7 @@ def changethedevice(module):
     if hasattr(module, 'bias') and module.bias != None:
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
-def unloadlorafowards(p):
+def unloadlorafowards(self):
     global orig_Linear_forward, lactive, labug
     lactive = labug = False
         
@@ -751,7 +754,7 @@ def unloadlorafowards(p):
     import lora
     if forge:
         from backend.args import dynamic_args
-        dynamic_args["online_lora"] = False
+        dynamic_args["online_lora"] = self.orig_online_lora
     else:
         emb_db = sd_hijack.model_hijack.embedding_db
         for net in lora.loaded_loras:

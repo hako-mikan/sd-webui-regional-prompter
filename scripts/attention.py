@@ -130,6 +130,10 @@ def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
 def hook_forward(self, module):
     def forward(x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0, value = None, transformer_options=None):
         pndealer(self,context)
+        
+        if self.hr_returner():
+            return main_forward(module, x, context, mask, x.shape[0] // self.batch_size, self.isvanilla,userpp =True,step = self.step, is_sdxl = self.is_sdxl)
+        
         if self.debug and self.count == 0:
             print("\ninput : ", x.size())
             print("tokens : ", context.size())

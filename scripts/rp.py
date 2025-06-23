@@ -41,8 +41,10 @@ OPTUSEL = "Use LoHa or other"
 OPTBREAK = "Use BREAK to change chunks"
 OPTFLIP = "Flip prompts"
 OPTCOUT = "Comment Out `#`"
+OPTAHIRES = "Enabled only in Hires Fix"
+OPTDHIRES = "Disabled in Hires Fix"
 
-OPTIONLIST = [OPTAND,OPTUSEL,OPTBREAK,OPTFLIP,OPTCOUT,"debug", "debug2"]
+OPTIONLIST = [OPTAND,OPTUSEL,OPTBREAK,OPTFLIP,OPTCOUT,OPTAHIRES,OPTDHIRES,"debug", "debug2"]
 
 # Modules.basedir points to extension's dir. script_path or scripts.basedir points to root.
 PTPRESET = modules.scripts.basedir()
@@ -256,6 +258,8 @@ class Script(modules.scripts.Script):
         self.in_hr = False
         self.xsize = 0
         self.imgcount = 0
+        self.hiresacts = [False, False]
+        self.orig_online_lora = False
         # for latent mode
         self.filters = []
         self.lora_applied = False
@@ -502,6 +506,10 @@ class Script(modules.scripts.Script):
                     if p.threshold is not None:threshold = str(p.threshold)
         else:
             diff = False
+        
+        if forge:
+            from backend.args import dynamic_args
+            self.orig_online_lora = dynamic_args["online_lora"]
 
         if not any(key in tprompt for key in ALLALLKEYS) or not active:
             return unloader(self,p)
@@ -538,6 +546,7 @@ class Script(modules.scripts.Script):
         self.all_prompts = p.all_prompts.copy()
         self.all_negative_prompts = p.all_negative_prompts.copy()
         self.optbreak = OPTBREAK in options
+        self.hiresacts = [OPTAHIRES in options, OPTDHIRES in options]
 
         # SBM ddim / plms detection.
         self.isvanilla = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
@@ -583,7 +592,7 @@ class Script(modules.scripts.Script):
                     shared.opts.batch_cond_uncond = orig_batch_cond_uncond
                 else:                    
                     shared.batch_cond_uncond = orig_batch_cond_uncond
-                unloadlorafowards(p)
+                unloadlorafowards(self)
                 denoiserdealer(self, True)
             else:
                 hook_forwards(self, p, remove = True)
@@ -689,6 +698,14 @@ class Script(modules.scripts.Script):
 
     def denoised_callback(self, params):
         denoised_callback_s(self, params)
+        
+    def hr_returner(self):
+        #0: enabled only hires, 1: disabled in hires
+        #print(self.in_hr,self.hiresacts,self.hiresacts[1] if self.in_hr else self.hiresacts[0])
+        if self.in_hr:
+            return self.hiresacts[1]
+        else:
+            return self.hiresacts[0]
 
 def unloader(self,p):
     if self.hooked:
@@ -702,7 +719,7 @@ def unloader(self,p):
     else:                    
         shared.batch_cond_uncond = orig_batch_cond_uncond
 
-    unloadlorafowards(p)
+    unloadlorafowards(self)
 
 def denoiserdealer(self, only_r):
     if not hasattr(self,"dr_callbacks"):
@@ -832,10 +849,8 @@ def tokendealer(self, p):
             tokenizer = p.sd_model.text_processing_engine_l.tokenize_line
         else:
             tokenizer = p.sd_model.text_processing_engine.tokenize_line
-        self.flux = flux = "flux" in str(type(p.sd_model.forge_objects.unet.model.diffusion_model))
     else:
         tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.is_sdxl else shared.sd_model.cond_stage_model.tokenize_line
-        self.flux = flux = False
         
     for pp in ppl:
         tokens, tokensnum = tokenizer(pp)
