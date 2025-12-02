@@ -682,7 +682,7 @@ def detect_polygons(img,num):
     print("Region sketch size", skimg.shape)    
     return skimg, num + 1 if (num >= 0 and num + 1 <= CBLACK) else num
 
-def detect_mask(img, num, mult = CBLACK):
+def detect_mask(img, num, mult = CBLACK, color = None):
     """Extract specific colour and return mask.
     
     Multiplier for correct display.
@@ -696,18 +696,22 @@ def detect_mask(img, num, mult = CBLACK):
     if img is None:
         return None
     indnot = False
-    if num < 0: # Detect unmasked region.
-        if INDCOLREPL: # In replacement mode, all colours are either region or white.
-            color = np.array(COLWHITE).reshape([1,1,CCHANNELS])
-        else: # In nonrepl mode, mask all the regions and invert.
-            color = np.array(list(REGUSE.values())) # nx3
-            color = np.moveaxis(color,-1,0) # 3xn
-            color = color.reshape(1,1,*color.shape) # 1x1x3xn
-            img = img.reshape(*img.shape,1) # Same.
-            indnot = True
-    else:
-        color = deterministic_colours(int(num) + 1)[-1]
-        color = color.reshape([1,1,CCHANNELS])
+    if color is None: # If no color was passed in, generate it.
+        if num < 0: # Detect unmasked region.
+            if INDCOLREPL: # In replacement mode, all colours are either region or white.
+                color = np.array(COLWHITE).reshape([1,1,CCHANNELS])
+            else: # In nonrepl mode, mask all the regions and invert.
+                color = np.array(list(REGUSE.values())) # nx3
+                color = np.moveaxis(color,-1,0) # 3xn
+                color = color.reshape(1,1,*color.shape) # 1x1x3xn
+                img = img.reshape(*img.shape,1) # Same.
+                indnot = True
+        else:
+            color = deterministic_colours(int(num) + 1)[-1]
+            color = color.reshape([1,1,CCHANNELS])
+    else: # A color was provided, use it.
+        color = np.array(color).reshape([1,1,CCHANNELS])
+
     if indnot: # Negation of a list of regions.
         mask = (~(img == color)).all(-1).all(-1)
         mask = mask * mult
@@ -774,8 +778,8 @@ def inpaintmaskdealer(self, p, bratios, usebase, polymask):
     # Sort colour dict by key, return value for masking.
     #for _,c in sorted(REGUSE.items(), key = lambda x: x[0]):
 
-    for c in sorted(REGUSE.keys()):
-        m = detect_mask(polymask, c, 1)
+    for c, color_val in sorted(REGUSE.items()):
+        m = detect_mask(polymask, c, 1, color=color_val)
         if VARIANT != 0:
             m = m[:-VARIANT,:-VARIANT]
         if m.any():
