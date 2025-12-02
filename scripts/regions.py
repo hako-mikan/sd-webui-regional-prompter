@@ -767,7 +767,7 @@ def create_canvas(h, w, indwipe = True):
 # If there's no base, remainder goes to first mask.
 # If there's a base, it will receive its own remainder mask, applied at 100%.
 def inpaintmaskdealer(self, p, bratios, usebase, polymask):
-    prompt = p.prompt
+    prompt = p.all_prompts[0]
     if self.optbreak:prompt = prompt.replace(KEYBRK, "")
     if self.debug: print("in inpaintmaskdealer",prompt)
     if KEYCOMM in prompt: prompt = prompt.split(KEYCOMM,1)[1]
