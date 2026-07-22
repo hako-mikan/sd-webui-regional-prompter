@@ -1,7 +1,7 @@
 import copy
 from pprint import pprint
 import torch
-from modules import devices, shared, extra_networks, sd_hijack
+from modules import devices, shared, extra_networks
 from modules.script_callbacks import CFGDenoisedParams, CFGDenoiserParams
 from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
@@ -9,8 +9,13 @@ from scripts.regions import floatdef
 from scripts.attention import makerrandman
 
 from modules import launch_utils
-forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag() == "neo" 
-reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag() == "classic"
+forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag().split(" ")[0] == "neo"
+reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag().split(" ")[0] == "classic"
+
+try:
+    from modules import sd_hijack
+except (ImportError, ModuleNotFoundError):
+    sd_hijack = None
 
 if forge:
     from modules.script_callbacks import AfterCFGCallbackParams, on_cfg_after_cfg
