@@ -30,8 +30,8 @@ disable_image_editor = getattr(shared.opts,"regprp_" + OPT_RP_DISABLE_IMAGE_EDIT
 USE_OLD_ACTIVE = "old_active_check"
 use_old_active = getattr(shared.opts,"regprp_" + USE_OLD_ACTIVE, False)
 
-forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag() == "neo" 
-reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag() == "classic"
+forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag().split(" ")[0] == "neo"
+reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag().split(" ")[0] == "classic"
 print(f"Forge: {forge}, reForge: {reforge}")
 
 KEYBRK_R = "RP_TEMP_REPLACE"
