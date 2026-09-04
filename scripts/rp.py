@@ -253,7 +253,8 @@ class Script(modules.scripts.Script):
         # separate conditionings rather than as chunks of one prompt, and they
         # are held apart inside the model's own attention. Prompt mode is left
         # out, it reads attention maps these do not produce in a usable shape.
-        self.dit_attn = (type(model).__name__ in att.DIT_ATTENTION_MODELS
+        self.dit_kind = type(model).__name__
+        self.dit_attn = (self.dit_kind in att.DIT_ATTENTION_MODELS
                          and "Att" in self.calc and "Pro" not in self.mode)
         
         self.aratios = []
@@ -278,6 +279,7 @@ class Script(modules.scripts.Script):
         # for latent mode
         self.filters = []
         self.dit_maskcache = self.dit_textcache = self.dit_jointcache = None
+        self.dit_animacache = None
         self.lora_applied = False
         self.lstop = 2244096 if int(0 if lstop =="" else lstop) == 0 else int(lstop)
         self.lstop_hr = 2244096 if int(0 if lstop_hr =="" else lstop_hr) == 0 else int(lstop_hr)

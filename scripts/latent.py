@@ -145,6 +145,8 @@ def neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, mod
     the text of its own region. The regions still share the image half of the
     attention, which is what keeps it one picture rather than a collage."""
 
+    axis = att.DIT_TEXT_AXIS.get(getattr(self, "dit_kind", None), 1)
+
     def merged(conds):
         """One conditioning holding every region's prompt, plus which region each
         of its tokens came from."""
@@ -155,13 +157,14 @@ def neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, mod
                 return None, None
             raw.append(held.cond)
 
-        if len({c.shape[2:] for c in raw}) > 1:
+        shape = lambda c: c.shape[:axis] + c.shape[axis + 1:]
+        if len({shape(c) for c in raw}) > 1:
             return None, None
 
-        owner = torch.cat([torch.full((c.shape[1],), i, dtype=torch.long) for i, c in enumerate(raw)])
+        owner = torch.cat([torch.full((c.shape[axis],), i, dtype=torch.long) for i, c in enumerate(raw)])
         entry = dict(conds[0])
         model_conds = dict(entry["model_conds"])
-        model_conds["c_crossattn"] = model_conds["c_crossattn"]._copy_with(torch.cat(raw, dim=1))
+        model_conds["c_crossattn"] = model_conds["c_crossattn"]._copy_with(torch.cat(raw, dim=axis))
         entry["model_conds"] = model_conds
         return entry, owner
 

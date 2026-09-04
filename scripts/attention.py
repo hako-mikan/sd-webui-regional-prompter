@@ -116,22 +116,24 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 # what Attention mode replaces: run it once per region with that region's share
 # of the prompt and keep each result where its mask is.
 #
-# That does not carry over to a DiT. Anima is the one built the same way, with a
-# cross attention of its own, and masking it there changes what is drawn but not
-# where - the global self attention spreads each region's conditioning over the
-# whole canvas and the model settles on a single composition. Krea2 and Z-Image
-# put the prompt into the same attention as the image, so the regions can be kept
-# apart inside that one softmax instead: an image token sees every image token,
-# which is what holds the picture together, but only the text of its own region.
-# That is the method described for Flux at
-# https://note.com/gcem156/n/n5489ac014a55 and it is what is done here.
+# That does not carry over to a DiT, where a global self attention spreads each
+# region's conditioning over the whole canvas. Krea2 and Z-Image put the prompt
+# into the same attention as the image, so the regions can be kept apart inside
+# that one softmax: an image token sees every image token, which is what holds
+# the picture together, but only the text of its own region. That is the method
+# described for Flux at https://note.com/gcem156/n/n5489ac014a55. Anima has a
+# cross attention of its own and needs its self attention leaned on as well, see
+# the note further down.
 #
 # The regions arrive as separate conditionings rather than as chunks of one
 # prompt, so there is nothing to slice: the replaced calc_cond_uncond_batch in
 # latent.py joins them into one context and says which token belongs to where.
 
-# Anima is left out, see above.
-DIT_ATTENTION_MODELS = ("Krea2", "ZImage")
+DIT_ATTENTION_MODELS = ("Krea2", "ZImage", "Anima")
+
+# Which axis of the conditioning the prompt's tokens run along, so the regions
+# can be joined into one context. Anima carries a singleton axis in front of it.
+DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 2}
 
 PAD = -1  # a token no region owns, which everything may see
 DIT_MAX_PAD = 256  # the most padding either model rounds a sequence up by
@@ -268,6 +270,90 @@ def dit_joint_mask(self, tokens, txtlen, device):
     return mask
 
 
+# Anima has a cross attention of its own rather than one joint attention, so
+# there is no single softmax to separate the regions inside. Blocking that cross
+# attention does place them, but only where the prompt names a subject; a region
+# asking for an ambient quality, a flat colour say, gets ignored. Closing its
+# self attention as well fixes that and goes too far the other way - each region
+# then composes for its own half of the canvas and the picture becomes a collage.
+#
+# So follow what the ComfyUI node at
+# https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning does: block the
+# cross attention, but only lean on the self attention with a finite penalty
+# rather than closing it, and only while the layout is being decided. The rest of
+# the run sees the whole prompt with nothing masked, and knits the regions
+# together.
+ANIMA_SELF_PENALTY = -0.6  # added to the logits of attention across regions
+ANIMA_END = 0.35  # of the schedule, after which nothing is masked at all
+
+
+def anima_masking(self):
+    """Whether the layout is still being decided."""
+    total = getattr(self, "total_step", 0) or 0
+    return total <= 0 or self.step < total * ANIMA_END
+
+
+def anima_biases(self, tokens, dtype, device):
+    """The cross and self attention biases for this token grid. A region's own
+    prompt is all its tokens can see; a base region covers the whole canvas, so
+    its prompt stays visible everywhere, which is what a base region is for."""
+    owner = neo_owner
+    if owner is None:
+        return None
+
+    cache = getattr(self, "dit_animacache", None)
+    if cache is not None and cache[0] == (tokens, dtype, owner.shape[0]):
+        return cache[1]
+
+    masks = dit_masks(self, tokens)
+    if masks is None or len(masks) != int(owner.max()) + 1:
+        return None
+
+    owner = owner.to(device)
+    covers = [m.reshape(-1).to(device) > 0 for m in masks]
+
+    cross = torch.zeros((tokens, owner.shape[0]), dtype=torch.bool, device=device)
+    for i, rows in enumerate(covers):
+        cross |= rows[:, None] & (owner == i)[None, :]
+    # a row of nothing but -inf comes back as NaN, so anything no region covers
+    # is left with the first prompt
+    stray = ~cross.any(dim=-1)
+    if stray.any():
+        cross[stray] = (owner == 0)[None, :]
+
+    within = torch.zeros((tokens, tokens), dtype=torch.bool, device=device)
+    for rows in covers:
+        within |= rows[:, None] & rows[None, :]
+    within.fill_diagonal_(True)
+
+    biases = (torch.where(cross, 0.0, float("-inf")).to(dtype)[None, None],
+              torch.where(within, 0.0, ANIMA_SELF_PENALTY).to(dtype)[None, None])
+    self.dit_animacache = ((tokens, dtype, owner.shape[0]), biases)
+    return biases
+
+
+def hook_anima_attention(self, module):
+    """Anima reaches its attention through self.torch_attention_op, so an
+    instance attribute is enough to divert it - and it has to be diverted in any
+    case, since the fused kernels take a mask and ignore it."""
+    original = type(module).torch_attention_op
+    is_self = module.is_SelfAttn
+
+    def torch_attention_op(q, k, v, transformer_options=None):
+        biases = anima_biases(self, q.shape[1], q.dtype, q.device) if anima_masking(self) else None
+        if biases is None:
+            return original(q, k, v, transformer_options=transformer_options)
+
+        from backend.attention import attention_pytorch
+        heads = q.shape[-2]
+        flat = lambda t: rearrange(t, "b ... h d -> b h ... d").view(t.shape[0], heads, -1, t.shape[-1])
+        return attention_pytorch(flat(q), flat(k), flat(v), heads,
+                                 mask=biases[1] if is_self else biases[0], skip_reshape=True)
+
+    torch_attention_op.rp_hooked = True
+    return torch_attention_op
+
+
 def hook_dit_forwards(self, root_module, remove=False):
     """Both models already take an attention mask, they are just never given one.
     What they also do, and what has to be undone, is run the prompt through a
@@ -281,6 +367,13 @@ def hook_dit_forwards(self, root_module, remove=False):
     for name, module in root_module.named_modules():
         kind = module.__class__.__name__
 
+        if kind == "SelfCrossAttention":
+            # Anima, masked at the attention itself rather than through a block
+            if remove:
+                module.__dict__.pop("torch_attention_op", None)
+            elif "torch_attention_op" not in module.__dict__:
+                module.torch_attention_op = hook_anima_attention(self, module)
+            continue
         if kind == "NextDiT":
             # its caption and image halves are each padded up to a multiple
             self.dit_pad = getattr(module, "pad_tokens_multiple", None) or 1

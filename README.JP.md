@@ -17,7 +17,7 @@ ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.co
 |---------------|--------|-----------|-------------|
 | Z-Image       | ○      | △         | ×           |
 | Krea2         | ○      | ○         | ×           |
-| Anima         | ○      | ×         | ×           |
+| Anima         | ○      | ○         | ×           |
 
 ○：対応  
 △：風景や人物の描き分けは良好ですが、両方の領域がそれぞれ「無地の背景に置かれた単体の主役」を要求するような場合は一つに融合しがちです。  
@@ -27,7 +27,7 @@ ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.co
 
 　これらのモデルはプロンプトを75トークンごとに分割しないため、SD/SDXLのように一つのプロンプトを切り分けることができません。代わりに領域ごとに個別にエンコードし、モデル自身のattentionの中で領域を分離します。画像トークンからは画像全体が見えたままなので一枚の絵としてまとまり、テキストは自分の領域のものだけが見えます。[こちら](https://note.com/gcem156/n/n5489ac014a55)で解説されている手法です。
 
-　Animaは単独のcross attentionを持つ構造のため対象外としています。ここをマスクしても「何が描かれるか」は変わりますが「どこに描かれるか」は変わらず、各領域のプロンプトが画面全体に広がってしまいます。Latentモードを使用してください。
+　Animaは単独のcross attentionを持つ構造なので、一つのsoftmaxの中で領域を分けることができません。こちらもcross attentionは同様にブロックし、加えてself attentionには閉じるのではなく小さなペナルティを与えます。適用するのはスケジュールの最初の1/3だけで、それ以降はマスクを外してモデルに領域をなじませます。これはComfyUI用の[Anima Regional Conditioning](https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning)の手法に倣ったものです。self attentionを完全に閉じると分離は強くなりますが、各領域が自分の半分だけで構図を組むためコラージュになります。
 
 　これらのモデルでのAttentionモードは、2領域ならLatentモードとほぼ同等の速度で、領域を増やすほど有利になります（モデルの実行は領域数に関わらず1回です）。ただし通常の生成よりは低速です。SageAttentionなどの融合カーネルはマスク引数を受け取っても無視するため、マスクを使う計算はPyTorch標準のattentionを通す必要があります。
 

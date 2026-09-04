@@ -17,7 +17,7 @@
 |---------------|--------|-----------|-------------|
 | Z-Image       | ○      | △         | ×           |
 | Krea2         | ○      | ○         | ×           |
-| Anima         | ○      | ×         | ×           |
+| Anima         | ○      | ○         | ×           |
 
 ○ : Supported  
 △ : Scenery and figures separate well, but two regions that each want to be the single centred subject on a plain background tend to merge into one.  
@@ -32,9 +32,14 @@ an image token still sees the whole image, which is what keeps the result one
 picture rather than a collage, but it only sees the prompt of its own region.
 This is the method described [here (Japanese)](https://note.com/gcem156/n/n5489ac014a55).
 
-Anima is left out because it has a cross attention of its own rather than one
-joint attention, and masking that changes what is drawn but not where: the model
-spreads each region's prompt over the whole canvas. Use Latent mode there.
+Anima has a cross attention of its own instead, so there is no single softmax to
+separate the regions inside. Its cross attention is blocked in the same way, and
+its self attention is leaned on with a small penalty rather than closed, for the
+first third of the schedule only; after that nothing is masked and the model
+knits the regions together. This follows what the ComfyUI node
+[Anima Regional Conditioning](https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning)
+arrived at. Closing the self attention instead separates the regions harder but
+turns the picture into a collage, each region composing for its own half.
 
 Attention mode costs about the same as Latent mode here for two regions, and
 less as regions are added, since the model runs once rather than once per region.
