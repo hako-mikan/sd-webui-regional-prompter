@@ -13,6 +13,7 @@ from modules.processing import Processed
 from modules.script_callbacks import (on_ui_settings, CFGDenoisedParams, CFGDenoiserParams, on_cfg_denoised, on_cfg_denoiser)
 import json  # Presets.
 from json.decoder import JSONDecodeError
+import scripts.attention as att
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards, forge_linear_forward)
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
@@ -248,6 +249,12 @@ class Script(modules.scripts.Script):
         self.is_sd1 = type(model).__name__ == "StableDiffusion" or getattr(model,'is_sd1', False)
         self.is_flux = type(model).__name__ == "Flux" or getattr(model,'is_flux', False)
         self.is_llm_te = type(model).__name__ in LLM_TE_MODELS
+        # Attention mode on these takes a different route: the regions arrive as
+        # separate conditionings rather than as chunks of one prompt, and they
+        # are held apart inside the model's own attention. Prompt mode is left
+        # out, it reads attention maps these do not produce in a usable shape.
+        self.dit_attn = (type(model).__name__ in att.DIT_ATTENTION_MODELS
+                         and "Att" in self.calc and "Pro" not in self.mode)
         
         self.aratios = []
         self.bratios = []
@@ -270,6 +277,7 @@ class Script(modules.scripts.Script):
         self.orig_online_lora = False
         # for latent mode
         self.filters = []
+        self.dit_maskcache = self.dit_textcache = self.dit_jointcache = None
         self.lora_applied = False
         self.lstop = 2244096 if int(0 if lstop =="" else lstop) == 0 else int(lstop)
         self.lstop_hr = 2244096 if int(0 if lstop_hr =="" else lstop_hr) == 0 else int(lstop_hr)
@@ -620,7 +628,7 @@ class Script(modules.scripts.Script):
         keyreplacer(self, p)                                                      #replace all keys to BREAK
         blankdealer(self, p)                                               #add "_" if prompt of last region is blank
         commondealer(p, self.usecom, self.usencom, flip_prompt)          #add commom prompt to all region
-        if "La" in self.calc: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode
+        if "La" in self.calc or self.dit_attn: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode, and for the DiT models whose prompt is not chunked
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
         if self.optbreak: allchanger(p,KEYBRK_R,KEYBRK)
         thresholddealer(self, p, threshold)                          #set threshold
@@ -879,7 +887,7 @@ def get_tokenize_line(self, p):
 
 
 def tokendealer(self, p):
-    seps = "AND" if "La" in self.calc else KEYBRK
+    seps = "AND" if "La" in self.calc or self.dit_attn else KEYBRK
     self.seps = seps
     
     text, _ = extra_networks.parse_prompt(p.all_prompts[0]) # SBM From update_token_counter.
@@ -903,7 +911,7 @@ def tokendealer(self, p):
     tokenizer = get_tokenize_line(self, p)
 
     if tokenizer is None or self.is_llm_te:
-        if "La" not in self.calc:
+        if "La" not in self.calc and not self.dit_attn:
             print("Regional Prompter: Attention mode does not support this model yet, "
                   "its prompt is not cut into chunks to divide. Use Latent mode.")
             return True

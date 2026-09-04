@@ -9,6 +9,38 @@
 [<img src="https://img.shields.io/badge/言語-日本語-green.svg?style=plastic" height="25" />](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 [<img src="https://img.shields.io/badge/Support-%E2%99%A5-magenta.svg?logo=github&style=plastic" height="25" />](https://github.com/sponsors/hako-mikan)
 
+## Updates 2026.09.04 (JST)
+- support the Forge Neo models: Z-Image, Anima, Krea2
+
+| Model \ Mode  | Latent | Attention | Region LoRA |
+|---------------|--------|-----------|-------------|
+| Z-Image       | ○      | △         | ×           |
+| Krea2         | ○      | ○         | ×           |
+| Anima         | ○      | ×         | ×           |
+
+○ : Supported  
+△ : Works, but the regions influence each other more than they separate. Good for backgrounds and scenery, weak when two regions each ask for a whole object.  
+× : Not supported  
+
+Region LoRA still names blocks the way the U-Nets do, so it has nothing to match on these models and does nothing.
+
+These models do not cut the prompt into 75 token chunks, so Attention mode cannot
+divide one prompt the way it does on SD and SDXL. Each region is encoded on its
+own instead, and the regions are separated inside the model's own attention:
+an image token still sees the whole image, which is what keeps the result one
+picture rather than a collage, but it only sees the prompt of its own region.
+This is the method described [here (Japanese)](https://note.com/gcem156/n/n5489ac014a55).
+
+Anima is left out because it has a cross attention of its own rather than one
+joint attention, and masking that changes what is drawn but not where: the model
+spreads each region's prompt over the whole canvas. Use Latent mode there.
+
+Attention mode costs about the same as Latent mode here for two regions, and
+less as regions are added, since the model runs once rather than once per region.
+It is still slower than a plain generation: a masked attention has to go through
+PyTorch's own kernel, because SageAttention and the other fused kernels take a
+mask argument and then ignore it.
+
 ## Updates 2025.01.28.2000 (JST)
 - support reForge
 - reForgeに対応

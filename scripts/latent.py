@@ -35,6 +35,7 @@ orig_Linear_forward = None
 orig_lora_functional = False
 
 lactive = False
+nactive = False
 labug =False
 MINID = 1000
 MAXID = 10000
@@ -138,7 +139,62 @@ def region_filters(self, x):
     return filters
 
 
+def neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, model_options):
+    """Attention mode. Every region's prompt is joined into one context and the
+    model runs once, with the attention masked so that an image token only sees
+    the text of its own region. The regions still share the image half of the
+    attention, which is what keeps it one picture rather than a collage."""
+
+    def merged(conds):
+        """One conditioning holding every region's prompt, plus which region each
+        of its tokens came from."""
+        raw = []
+        for one in conds:
+            held = one.get("model_conds", {}).get("c_crossattn")
+            if held is None:
+                return None, None
+            raw.append(held.cond)
+
+        if len({c.shape[2:] for c in raw}) > 1:
+            return None, None
+
+        owner = torch.cat([torch.full((c.shape[1],), i, dtype=torch.long) for i, c in enumerate(raw)])
+        entry = dict(conds[0])
+        model_conds = dict(entry["model_conds"])
+        model_conds["c_crossattn"] = model_conds["c_crossattn"]._copy_with(torch.cat(raw, dim=1))
+        entry["model_conds"] = model_conds
+        return entry, owner
+
+    entry, owner = merged(cond)
+    if entry is None:
+        return original(model, cond, uncond, x_in, timestep, model_options)
+
+    att.set_neo_context(owner)
+    try:
+        out_cond, _ = original(model, [entry], None, x_in, timestep, model_options)
+    finally:
+        att.set_neo_context(None)
+
+    if uncond is None:
+        return out_cond, torch.zeros_like(x_in)
+
+    nentry, nowner = merged(uncond) if len(uncond) > 1 else (uncond[0], None)
+    if nentry is None:
+        nentry, nowner = uncond[0], None
+
+    att.set_neo_context(nowner)
+    try:
+        _, out_uncond = original(model, [], [nentry], x_in, timestep, model_options)
+    finally:
+        att.set_neo_context(None)
+
+    return out_cond, out_uncond
+
+
 def hook_neo_cond_batch(self):
+    global nactive
+    nactive = True
+
     from backend.sampling import sampling_function as sf
 
     if getattr(sf.calc_cond_uncond_batch, "rp_hooked", False):
@@ -147,7 +203,13 @@ def hook_neo_cond_batch(self):
     original = sf.calc_cond_uncond_batch
 
     def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
-        if not lactive or cond is None or len(cond) < 2:
+        if not nactive or cond is None or len(cond) < 2:
+            return original(model, cond, uncond, x_in, timestep, model_options)
+
+        if getattr(self, "dit_attn", False):
+            return neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, model_options)
+
+        if not lactive:
             return original(model, cond, uncond, x_in, timestep, model_options)
 
         filters = region_filters(self, x_in)
@@ -175,6 +237,9 @@ def hook_neo_cond_batch(self):
 
 
 def unhook_neo_cond_batch():
+    global nactive
+    nactive = False
+
     try:
         from backend.sampling import sampling_function as sf
     except Exception:

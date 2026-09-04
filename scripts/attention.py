@@ -1,4 +1,5 @@
 import math
+import sys
 from pprint import pprint
 import torch
 import torchvision
@@ -109,12 +110,315 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 
     return out
 
+###################################################
+###### Attention mode on the Forge Neo DiT models
+# The U-Nets carry the prompt in a cross attention of its own, attn2, which is
+# what Attention mode replaces: run it once per region with that region's share
+# of the prompt and keep each result where its mask is.
+#
+# That does not carry over to a DiT. Anima is the one built the same way, with a
+# cross attention of its own, and masking it there changes what is drawn but not
+# where - the global self attention spreads each region's conditioning over the
+# whole canvas and the model settles on a single composition. Krea2 and Z-Image
+# put the prompt into the same attention as the image, so the regions can be kept
+# apart inside that one softmax instead: an image token sees every image token,
+# which is what holds the picture together, but only the text of its own region.
+# That is the method described for Flux at
+# https://note.com/gcem156/n/n5489ac014a55 and it is what is done here.
+#
+# The regions arrive as separate conditionings rather than as chunks of one
+# prompt, so there is nothing to slice: the replaced calc_cond_uncond_batch in
+# latent.py joins them into one context and says which token belongs to where.
+
+# Anima is left out, see above.
+DIT_ATTENTION_MODELS = ("Krea2", "ZImage")
+
+PAD = -1  # a token no region owns, which everything may see
+DIT_MAX_PAD = 256  # the most padding either model rounds a sequence up by
+
+# Region number per text token of the joined context, set by latent.py for the
+# pass about to run. None means "leave the model alone".
+neo_owner = None
+
+
+def set_neo_context(owner):
+    global neo_owner
+    neo_owner = owner
+
+
+def dit_grid(self, tokens):
+    """The height and width of the token grid holding an image of this size, and
+    how many tokens of padding follow it. Both models pad the sequence up to a
+    round number, so the count alone does not give the shape."""
+    # the hires size is a scale away from the base one, so it arrives as a float
+    height = int(self.hr_h if self.in_hr and self.hr else self.h)
+    width = int(self.hr_w if self.in_hr and self.hr else self.w)
+
+    best = None
+    for scale in (8, 16, 32, 64):
+        dsh, dsw = -(-height // scale), -(-width // scale)
+        n = dsh * dsw
+        if n <= tokens and (best is None or n > best[0] * best[1]):
+            best = (dsh, dsw)
+    if best is None:
+        return None
+
+    pad = tokens - best[0] * best[1]
+    # More than a round-up of padding means this is not the image half of a joint
+    # sequence at all: Z-Image reuses the same block to refine the noise on its
+    # own, and that pass has to be left alone.
+    if pad >= DIT_MAX_PAD:
+        return None
+    return best[0], best[1], pad
+
+
+def dit_masks(self, tokens):
+    """The region masks laid onto that grid, one (1, tokens, 1) tensor per region
+    in the order the prompt lists them."""
+    cache = getattr(self, "dit_maskcache", None)
+    if cache is not None and cache[0] == tokens:
+        return cache[1]
+
+    grid = dit_grid(self, tokens)
+    if grid is None:
+        return None
+    dsh, dsw = grid[0], grid[1]
+
+    import scripts.latent as lat
+
+    if "Ran" in self.mode:
+        sors = [self.ranbase] + self.ransors if self.usebase else list(self.ransors)
+        filters = sors if sors[0].shape[-2:] == (dsh, dsw) else lat.hrchange(sors, dsh, dsw)
+    else:
+        masks = (self.regmasks, self.regbase) if "Mask" in self.mode else self.aratios
+        filters = lat.makefilters(1, dsh, dsw, masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
+
+    filters = [f.reshape(1, -1, 1) for f in filters]
+    self.dit_maskcache = (tokens, filters)
+    return filters
+
+
+def dit_owners(self, tokens):
+    """Which region each image token falls in, padding included."""
+    masks = dit_masks(self, tokens)
+    if masks is None:
+        return None
+    grid = dit_grid(self, tokens)
+    owner = torch.stack([m.reshape(-1) for m in masks]).argmax(0)
+    if grid[2]:
+        owner = torch.cat([owner, torch.full((grid[2],), PAD, dtype=owner.dtype, device=owner.device)])
+    return owner
+
+
+def text_owners(self, length):
+    """The same for the text half. Anything past the joined context is padding
+    the model added itself."""
+    if neo_owner is None:
+        return None
+    owner = neo_owner
+    if length < owner.shape[0]:
+        return None
+    if length > owner.shape[0]:
+        owner = torch.cat([owner, torch.full((length - owner.shape[0],), PAD, dtype=owner.dtype)])
+    return owner
+
+
+def mask_of(owner, is_img):
+    same = owner[:, None] == owner[None, :]
+    free = (owner == PAD)
+    keep = same | free[:, None] | free[None, :]
+    if is_img is not None:
+        keep = keep | (is_img[:, None] & is_img[None, :])
+    return keep.unsqueeze(0).unsqueeze(0)
+
+
+def dit_text_mask(self, txtlen, device):
+    """For the passes the models make over the prompt alone, before the image
+    joins it: keep each region to itself so they are not blended back together."""
+    cache = getattr(self, "dit_textcache", None)
+    if cache is not None and cache[0] == txtlen:
+        return cache[1]
+
+    owner = text_owners(self, txtlen)
+    if owner is None or int(owner.max()) < 1:
+        return None
+
+    mask = mask_of(owner.to(device), None)
+    self.dit_textcache = (txtlen, mask)
+    return mask
+
+
+def dit_joint_mask(self, tokens, txtlen, device):
+    """Text first, then image, as both models lay the joint sequence out."""
+    cache = getattr(self, "dit_jointcache", None)
+    if cache is not None and cache[0] == (tokens, txtlen):
+        return cache[1]
+
+    text = text_owners(self, txtlen)
+    image = dit_owners(self, tokens - txtlen)
+    if text is None or image is None or len(set(int(x) for x in image.unique()) - {PAD}) < 2:
+        return None
+
+    owner = torch.cat([text.to(device), image.to(device)])
+    is_img = torch.zeros(tokens, dtype=torch.bool, device=device)
+    is_img[txtlen:] = True
+
+    mask = mask_of(owner, is_img)
+    self.dit_jointcache = ((tokens, txtlen), mask)
+    return mask
+
+
+def hook_dit_forwards(self, root_module, remove=False):
+    """Both models already take an attention mask, they are just never given one.
+    What they also do, and what has to be undone, is run the prompt through a
+    little transformer of their own first, which would blend the regions back
+    together before the image ever sees them."""
+    self.hooked = not remove
+
+    hook_masked_attention(remove)
+    self.dit_pad = 1
+
+    for name, module in root_module.named_modules():
+        kind = module.__class__.__name__
+
+        if kind == "NextDiT":
+            # its caption and image halves are each padded up to a multiple
+            self.dit_pad = getattr(module, "pad_tokens_multiple", None) or 1
+            continue
+        if kind == "SingleStreamBlock":
+            hooked = hook_krea_block(self, module)
+        elif kind == "TextFusionTransformer":
+            hooked = hook_krea_textfusion(module)
+        elif kind == "JointTransformerBlock":
+            hooked = hook_zimage_block(self, module)
+        else:
+            continue
+
+        if remove:
+            module.__dict__.pop("forward", None)
+        elif not getattr(module.forward, "rp_hooked", False):
+            module.forward = hooked
+
+
+def rp_hook(original, forward):
+    forward.rp_hooked = True
+    forward.rp_original = original
+    return forward
+
+
+def hook_krea_block(self, module):
+    original = module.forward
+
+    def forward(x, vec, freqs, mask=None, transformer_options={}):
+        if mask is None and neo_owner is not None:
+            mask = dit_joint_mask(self, x.shape[1], neo_owner.shape[0], x.device)
+        return original(x, vec, freqs, mask, transformer_options=transformer_options)
+
+    return rp_hook(original, forward)
+
+
+def hook_krea_textfusion(module):
+    """Krea2's prompt arrives as (batch, token, layer, feature) and this collapses
+    the layers with an attention that also runs along the tokens. Feeding it one
+    region at a time is simpler than masking it."""
+    original = module.forward
+
+    def forward(x, mask=None, transformer_options={}):
+        spans = neo_spans(x.shape[1])
+        if spans is None:
+            return original(x, mask=mask, transformer_options=transformer_options)
+        return torch.cat([original(x[:, a:b].clone(), mask=None, transformer_options=transformer_options)
+                          for a, b in spans], dim=1)
+
+    return rp_hook(original, forward)
+
+
+def hook_zimage_block(self, module):
+    """Z-Image uses the same block for three jobs, told apart by how long the
+    sequence is: refining the caption, refining the noise, and the joint pass."""
+    original = module.forward
+
+    def forward(x, x_mask, freqs_cis, adaln_input=None, transformer_options={}):
+        if x_mask is None and neo_owner is not None:
+            txtlen = round_up(neo_owner.shape[0], getattr(self, "dit_pad", 1))
+            if x.shape[1] == txtlen:
+                x_mask = dit_text_mask(self, txtlen, x.device)
+            elif x.shape[1] > txtlen:
+                x_mask = dit_joint_mask(self, x.shape[1], txtlen, x.device)
+        return original(x, x_mask, freqs_cis, adaln_input, transformer_options=transformer_options)
+
+    return rp_hook(original, forward)
+
+
+def round_up(n, multiple):
+    return n + (-n) % multiple if multiple else n
+
+
+def neo_spans(tokens):
+    """The (start, end) of each region inside the joined context."""
+    if neo_owner is None or tokens != neo_owner.shape[0]:
+        return None
+    edges = (neo_owner[1:] != neo_owner[:-1]).nonzero().flatten() + 1
+    edges = [0] + [int(e) for e in edges] + [tokens]
+    return list(zip(edges[:-1], edges[1:]))
+
+
+orig_attention_function = None
+
+
+def hook_masked_attention(remove=False):
+    """SageAttention and the other fused kernels take an attn_mask argument and
+    then ignore it, so a masked call has to go through PyTorch's own attention.
+    Only the calls that carry a mask are diverted."""
+    global orig_attention_function
+    import backend.attention as batt
+
+    targets = [sys.modules[name] for name in ("backend.nn.krea", "backend.nn.lumina")
+               if name in sys.modules and hasattr(sys.modules[name], "attention_function")]
+
+    if remove:
+        if orig_attention_function is not None:
+            for module in targets:
+                module.attention_function = orig_attention_function
+            orig_attention_function = None
+        return
+
+    if orig_attention_function is not None or not targets:
+        return
+
+    orig_attention_function = batt.attention_function
+
+    def attention_function(q, k, v, heads, mask=None, **kwargs):
+        if mask is None:
+            return orig_attention_function(q, k, v, heads, mask=mask, **kwargs)
+        kwargs.pop("transformer_options", None)
+        kwargs.pop("attn_precision", None)
+        return batt.attention_pytorch(q, k, v, heads, mask=mask, **kwargs)
+
+    for module in targets:
+        module.attention_function = attention_function
+
+
+
 def hook_forwards(self, p, remove=False):
     self.need_hook = not remove
-    if forge:
-        hook_forwards_x(self, p.sd_model.forge_objects.unet.model, remove) 
-    else:
-        hook_forwards_x(self, p.sd_model.model.diffusion_model, remove)
+    root = p.sd_model.forge_objects.unet.model if forge else p.sd_model.model.diffusion_model
+    import scripts.latent as lat
+
+    if remove:
+        # which path put them there cannot be told from the calc mode any more,
+        # the user may have just changed it, so take both back
+        hook_dit_forwards(self, root, True)
+        hook_forwards_x(self, root, True)
+        lat.unhook_neo_cond_batch()
+        return
+
+    if getattr(self, "dit_attn", False):
+        hook_dit_forwards(self, root, False)
+        lat.hook_neo_cond_batch(self)
+        return
+
+    hook_forwards_x(self, root, False)
 
 def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
     self.hooked = True if not remove else False
