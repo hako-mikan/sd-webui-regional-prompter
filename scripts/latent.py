@@ -191,11 +191,39 @@ def neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, mod
     return out_cond, out_uncond
 
 
+def normalise_cond_strengths(model, x, timestep, uncond, cond, cond_scale, model_options, seed):
+    """Neo multiplies the guidance by the sum of the conditioning strengths. That
+    is meant for the edit models, where one conditioning carries a real weight,
+    but composable diffusion gives every prompt a strength of 1, so the sum comes
+    out as the number of regions: two regions doubled the CFG, three tripled it.
+
+    The old path did not need this. It leaves every region's slot holding
+    region * mask + uncond * (1 - mask), and the terms the extra counting adds are
+    exactly the ones that cancel - which is also why it is written that way on
+    A1111. Blending the regions into one prediction instead loses that, so the
+    strengths are scaled to sum to one. They are divided out again where the
+    predictions are averaged, so this leaves the result alone and only puts the
+    guidance back where the user set it."""
+    if nactive and cond is not None and len(cond) > 1:
+        total = sum(one.get("strength", 1.0) for one in cond)
+        if total:
+            for one in cond:
+                one["strength"] = one.get("strength", 1.0) / total
+    return model, x, timestep, uncond, cond, cond_scale, model_options, seed
+
+
 def hook_neo_cond_batch(self):
     global nactive
     nactive = True
 
     from backend.sampling import sampling_function as sf
+
+    unet = shared.sd_model.forge_objects.unet
+    if hasattr(unet, "add_conditioning_modifier"):
+        unet.add_conditioning_modifier(normalise_cond_strengths, ensure_uniqueness=True)
+    else:
+        print("Regional Prompter: cannot reach the conditioning modifiers, "
+              "the guidance will be multiplied by the number of regions")
 
     if getattr(sf.calc_cond_uncond_batch, "rp_hooked", False):
         return

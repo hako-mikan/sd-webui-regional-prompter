@@ -11,6 +11,7 @@
 
 ## Updates 2026.09.04 (JST)
 - support the Forge Neo models: Z-Image, Anima, Krea2
+- fix the guidance being multiplied by the number of regions on those models
 
 | Model \ Mode  | Latent | Attention | Region LoRA |
 |---------------|--------|-----------|-------------|
@@ -19,7 +20,7 @@
 | Anima         | ○      | ×         | ×           |
 
 ○ : Supported  
-△ : Works, but the regions influence each other more than they separate. Good for backgrounds and scenery, weak when two regions each ask for a whole object.  
+△ : Scenery and figures separate well, but two regions that each want to be the single centred subject on a plain background tend to merge into one.  
 × : Not supported  
 
 Region LoRA still names blocks the way the U-Nets do, so it has nothing to match on these models and does nothing.
