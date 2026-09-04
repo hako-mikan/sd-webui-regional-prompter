@@ -61,17 +61,129 @@ def setuploras(self):
     torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
 
     if forge:
-        shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
+        if getattr(self, "is_llm_te", False):
+            # the batch the model function wrapper is handed cannot be trusted on
+            # these, see the note above hook_neo_cond_batch
+            hook_neo_cond_batch(self)
+        else:
+            shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
         from backend.args import dynamic_args
         dynamic_args["online_lora"] = True
         import networks as net
         net.load_networks = load_networks
 
-        for name, module in shared.sd_model.forge_objects.clip.cond_stage_model.clip_l.named_modules():
-            if name == "transformer.text_model.encoder.layers.0.self_attn.q_proj":
-                module.forward = forge_linear_forward.__get__(module)
+        if not hook_text_encoder_start(shared.sd_model.forge_objects.clip):
+            print("Regional Prompter: could not find a place to watch the text encoder, the region LoRA will not switch")
     if reforge:
         shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
+
+TE_TRIPWIRE = "layers.0.self_attn.q_proj"
+
+
+def hook_text_encoder_start(clip):
+    """RP needs one point inside the text encoder to notice that the next
+    region's prompt is being encoded, so that the region LoRA can be switched
+    there. Which encoder that is depends on the model: clip_l on SD and SDXL,
+    and on Forge Neo it is an LLM instead - qwen3 for Z-Image, qwen3_06b for
+    Anima, qwen3vl_4b for Krea2 - so go by the shape of the module path rather
+    than by the name of the encoder."""
+    encoders = dict(clip.cond_stage_model.named_children())
+    # keep the previous choice where it exists, the first attention of CLIP-L
+    order = (["clip_l"] if "clip_l" in encoders else []) + [k for k in encoders if k != "clip_l"]
+
+    for key in order:
+        for name, module in encoders[key].named_modules():
+            if name.endswith(TE_TRIPWIRE):
+                if not hasattr(module, "rp_original_forward"):
+                    module.rp_original_forward = module.forward
+                module.forward = forge_linear_forward.__get__(module)
+                return True
+    return False
+
+
+###################################################
+###### Latent method on the Forge Neo DiT models
+# Neo makes no promise to compute every region in one call. sampling_function
+# pops as many conditionings as it thinks will fit in the free VRAM and calls the
+# model function wrapper once per batch, so the number of regions the wrapper is
+# handed changes from step to step, with the batch size, and with whatever else
+# is on the card. At CFG 1 it drops the negative pass altogether, which is what
+# every distilled model runs at. Guessing at the batch cannot be made reliable.
+#
+# So replace the function that does the batching instead. There the whole list of
+# conditionings arrives at once and in order, one call per step, and the regions
+# can simply be summed under their masks. That is also less memory than before,
+# since one region is on the card at a time rather than all of them.
+
+def region_filters(self, x):
+    """The region masks at the resolution of this latent. Anima and Krea2 carry a
+    five dimensional Wan latent, so the mask gains a frame axis to line up."""
+    five = x.dim() == 5
+    c = x.shape[1]
+    h, w = (x.shape[3], x.shape[4]) if five else (x.shape[2], x.shape[3])
+
+    ready = self.filters and getattr(self, "filtershw", None) == (h, w)
+    if not ready:
+        if "Ran" in self.mode:
+            sors = [self.ranbase] + self.ransors if self.usebase else list(self.ransors)
+            self.filters = sors if sors[0].shape[-2:] == (h, w) else hrchange(self.ransors, h, w)
+        else:
+            masks = (self.regmasks, self.regbase) if "Mask" in self.mode else self.aratios
+            self.filters = makefilters(c, h, w, masks, self.mode, self.usebase, self.bratios, "Mas" in self.mode)
+        self.filtershw = (h, w)
+
+    filters = [f if torch.is_tensor(f) else torch.full((c, h, w), float(f), device=x.device) for f in self.filters]
+    if five:
+        filters = [f.unsqueeze(1) if f.dim() == 3 else f for f in filters]
+    return filters
+
+
+def hook_neo_cond_batch(self):
+    from backend.sampling import sampling_function as sf
+
+    if getattr(sf.calc_cond_uncond_batch, "rp_hooked", False):
+        return
+
+    original = sf.calc_cond_uncond_batch
+
+    def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
+        if not lactive or cond is None or len(cond) < 2:
+            return original(model, cond, uncond, x_in, timestep, model_options)
+
+        filters = region_filters(self, x_in)
+        if len(filters) < len(cond):
+            if labug:
+                print(f"Regional Prompter: {len(cond)} regions but {len(filters)} masks, leaving it alone")
+            return original(model, cond, uncond, x_in, timestep, model_options)
+
+        out_cond = torch.zeros_like(x_in)
+        for i, one in enumerate(cond):
+            regioner.set_region(i)
+            region_out, _ = original(model, [one], None, x_in, timestep, model_options)
+            out_cond += region_out * filters[i].to(device=region_out.device, dtype=region_out.dtype)
+
+        if uncond is None:
+            return out_cond, torch.zeros_like(x_in)
+
+        regioner.set_region(0)
+        _, out_uncond = original(model, [], uncond, x_in, timestep, model_options)
+        return out_cond, out_uncond
+
+    calc_cond_uncond_batch.rp_hooked = True
+    calc_cond_uncond_batch.rp_original = original
+    sf.calc_cond_uncond_batch = calc_cond_uncond_batch
+
+
+def unhook_neo_cond_batch():
+    try:
+        from backend.sampling import sampling_function as sf
+    except Exception:
+        return
+
+    original = getattr(sf.calc_cond_uncond_batch, "rp_original", None)
+    if original is not None:
+        sf.calc_cond_uncond_batch = original
+
 
 def cloneparams(orig,target):
     target.x = orig.x.clone()
@@ -692,15 +804,12 @@ def h15_Linear_forward(self, input):
         return torch.nn.Linear_forward_before_network(self, input)
 
 def forge_linear_forward(self, x):
+    """Only here to notice that the text encoder has started on the next region.
+    Call the module's own forward rather than reimplementing the linear: on Forge
+    Neo the text encoder can be fp8, mixed precision or gguf, and each of those
+    multiplies differently."""
     regioner.te_start_f()
-    from backend import operations as op
-    if self.parameters_manual_cast:
-        weight, bias, signal = op.weights_manual_cast(self, x)
-        with op.main_stream_worker(weight, bias, signal):
-            return torch.nn.functional.linear(x, weight, bias)
-    else:
-        weight, bias = op.get_weight_and_bias(self)
-        return torch.nn.functional.linear(x, weight, bias)
+    return self.rp_original_forward(x)
 
 def changethelora(name):
     if lactive:
@@ -755,6 +864,8 @@ def changethedevice(module):
 def unloadlorafowards(self):
     global orig_Linear_forward, lactive, labug
     lactive = labug = False
+
+    unhook_neo_cond_batch()
         
     try:
         shared.opts.lora_functional =  orig_lora_functional

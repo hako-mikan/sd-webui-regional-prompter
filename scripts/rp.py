@@ -31,6 +31,13 @@ USE_OLD_ACTIVE = "old_active_check"
 use_old_active = getattr(shared.opts,"regprp_" + USE_OLD_ACTIVE, False)
 
 forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag().split(" ")[0] == "neo"
+neo = launch_utils.git_tag().split(" ")[0] == "neo"
+
+# Forge Neo's architectures whose prompt goes through an LLM instead of CLIP. They
+# do not cut the prompt into 75 token chunks, so there are no chunk boundaries for
+# Attention mode to slice the conditioning at. Latent mode does not need any,
+# since each region is a conditioning of its own.
+LLM_TE_MODELS = ("ZImage", "Anima", "Krea2", "Lumina2", "Chroma", "QwenImage", "Flux2", "ErnieImage")
 reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag().split(" ")[0] == "classic"
 print(f"Forge: {forge}, reForge: {reforge}")
 
@@ -240,6 +247,7 @@ class Script(modules.scripts.Script):
         self.is_sd2 = type(model).__name__ == "StableDiffusion2" or getattr(model,'is_sd2', False)
         self.is_sd1 = type(model).__name__ == "StableDiffusion" or getattr(model,'is_sd1', False)
         self.is_flux = type(model).__name__ == "Flux" or getattr(model,'is_flux', False)
+        self.is_llm_te = type(model).__name__ in LLM_TE_MODELS
         
         self.aratios = []
         self.bratios = []
@@ -461,7 +469,7 @@ class Script(modules.scripts.Script):
         flip_prompt = OPTFLIP in options
         self.slowlora = OPTUSEL in options
 
-        if type(polymask) == str:
+        if type(polymask) == str and polymask.strip():
             image = None
             try:
                 image = Image.open(polymask)
@@ -822,6 +830,54 @@ def allchanger(p, a, b):
     for i in lange(p.all_negative_prompts):
         p.all_negative_prompts[i] = p.all_negative_prompts[i].replace(a, b)
 
+def get_tokenize_line(self, p):
+    """The name of the text processing engine depends on the architecture: Forge
+    calls it text_processing_engine(_l), while Forge Neo names it after the
+    encoder it holds, so find it rather than guessing.
+
+    The classic engine returns (chunks, token count); the LLM based engines of
+    Forge Neo return only the chunks, because there is nothing to chunk."""
+    if forge:
+        engine = None
+        for name in ("text_processing_engine_l", "text_processing_engine"):
+            engine = getattr(p.sd_model, name, None)
+            if engine is not None and hasattr(engine, "tokenize_line"):
+                break
+            engine = None
+
+        if engine is None:
+            for name in dir(p.sd_model):
+                if not name.startswith("text_processing_engine"):
+                    continue
+                candidate = getattr(p.sd_model, name, None)
+                if candidate is not None and hasattr(candidate, "tokenize_line"):
+                    engine = candidate
+                    break
+
+        if engine is None:
+            return None
+        tokenize_line = engine.tokenize_line
+    elif self.is_sdxl:
+        tokenize_line = shared.sd_model.conditioner.embedders[0].tokenize_line
+    else:
+        tokenize_line = shared.sd_model.cond_stage_model.tokenize_line
+
+    def call(line):
+        result = tokenize_line(line)
+        if isinstance(result, tuple) and len(result) == 2:
+            return result
+        chunks = result
+        count = 0
+        for chunk in chunks:
+            tokens = getattr(chunk, "tokens", None)
+            if tokens is None:
+                tokens = getattr(chunk, "qwen_tokens", [])
+            count += len(tokens)
+        return chunks, count
+
+    return call
+
+
 def tokendealer(self, p):
     seps = "AND" if "La" in self.calc else KEYBRK
     self.seps = seps
@@ -843,15 +899,25 @@ def tokendealer(self, p):
         p.all_negative_prompts[0] = p.all_negative_prompts[0].replace(KEYBRK_R, KEYBRK)
 
     padd = 0
-    
-    if forge:
-        if hasattr(p.sd_model, "text_processing_engine_l"):
-            tokenizer = p.sd_model.text_processing_engine_l.tokenize_line
-        else:
-            tokenizer = p.sd_model.text_processing_engine.tokenize_line
-    else:
-        tokenizer = shared.sd_model.conditioner.embedders[0].tokenize_line if self.is_sdxl else shared.sd_model.cond_stage_model.tokenize_line
-        
+
+    tokenizer = get_tokenize_line(self, p)
+
+    if tokenizer is None or self.is_llm_te:
+        if "La" not in self.calc:
+            print("Regional Prompter: Attention mode does not support this model yet, "
+                  "its prompt is not cut into chunks to divide. Use Latent mode.")
+            return True
+
+        # Latent mode never looks at the chunk spans: every region is a
+        # conditioning of its own, joined by AND, not a slice of one prompt
+        self.pt = [[i, i + 1] for i in range(len(ppl))]
+        self.nt = [[i, i + 1] for i in range(len(npl))]
+        self.pe = []
+        self.ppt = [0] * len(ppl)
+        self.pnt = [0] * len(npl)
+        self.eq = eqb
+        return False
+
     for pp in ppl:
         tokens, tokensnum = tokenizer(pp)
         pt.append([padd, tokensnum // TOKENS + 1 + padd])
