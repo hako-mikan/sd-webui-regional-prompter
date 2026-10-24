@@ -38,7 +38,7 @@ neo = launch_utils.git_tag().split(" ")[0] == "neo"
 # do not cut the prompt into 75 token chunks, so there are no chunk boundaries for
 # Attention mode to slice the conditioning at. Latent mode does not need any,
 # since each region is a conditioning of its own.
-LLM_TE_MODELS = ("ZImage", "Anima", "Krea2", "Lumina2", "Chroma", "QwenImage", "Flux2", "ErnieImage")
+LLM_TE_MODELS = ("ZImage", "Anima", "Krea2", "Lumina2", "Chroma", "QwenImage", "Flux2", "ErnieImage", "MOSSImage")
 reforge = launch_utils.git_tag()[0:2] == "f1" or launch_utils.git_tag().split(" ")[0] == "classic"
 print(f"Forge: {forge}, reForge: {reforge}")
 
@@ -275,7 +275,6 @@ class Script(modules.scripts.Script):
         self.xsize = 0
         self.imgcount = 0
         self.hiresacts = [False, False]
-        self.orig_online_lora = False
         # for latent mode
         self.filters = []
         self.dit_maskcache = self.dit_textcache = self.dit_jointcache = None
@@ -524,10 +523,6 @@ class Script(modules.scripts.Script):
                     if p.threshold is not None:threshold = str(p.threshold)
         else:
             diff = False
-        
-        if forge:
-            from backend.args import dynamic_args
-            self.orig_online_lora = dynamic_args["online_lora"]
 
         if not any(key in tprompt for key in ALLALLKEYS) or not active:
             return unloader(self,p)
@@ -1397,7 +1392,11 @@ on_ui_settings(ext_on_ui_settings)
 
 class InputAccordionImpl(gr.Checkbox):
     webui_do_not_create_gradio_pyi_thank_you = True
-    global_index = 2244096 + 4 #1: CD-Tuner, 2:NegPip, 3:lbw
+    # the element id has to be unique across every extension that ships this
+    # accordion. The shared counter with a per extension offset this used to have
+    # collided with LoRA Block Weight, whose accordion is built more than twice, and
+    # the javascript then wired the checkbox of one to the accordion of the other
+    global_index = 0
 
     @wraps(gr.Checkbox.__init__)
     def __init__(self, value=None, setup=False, **kwargs):
@@ -1407,7 +1406,7 @@ class InputAccordionImpl(gr.Checkbox):
 
         self.accordion_id = kwargs.get('elem_id')
         if self.accordion_id is None:
-            self.accordion_id = f"input-accordion-m-{InputAccordionImpl.global_index}"
+            self.accordion_id = f"input-accordion-m-rp-{InputAccordionImpl.global_index}"
             InputAccordionImpl.global_index += 1
 
         kwargs_checkbox = {

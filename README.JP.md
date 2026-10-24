@@ -9,6 +9,14 @@
 ## Language control / 言語制御
 ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.md)
 
+## 更新情報 2026.10.25.0100(JST)
+- Forge NeoのMOSS-ImageにLatent/Attentionモードで対応
+- 2026.09.04の更新以降、A1111とreForgeで`No module named 'backend'`のエラーが出て動作しなかった問題を修正
+- LoRA Block Weightと併用すると、Regional Prompterのチェックボックスが LoRA Block Weight を切り替えてしまう(逆も)問題を修正。アコーディオンの要素IDが重複していました
+- ForgeでLoRA stop stepが`object of type 'int' has no len()`で落ちる問題を修正(#400)
+- ForgeのLatentモードでLoRAを2つ使うと、同じ設定でも生成のたびに効きが弱く/違う結果になる問題を修正(#400)
+- Regional Prompterが有効かどうかに関わらず、生成のたびにForgeのon-the-fly LoRAをオフにしてしまい、GGUFや低bitのFluxでLoRAが使えなくなる問題を修正(#409)
+
 ## 更新情報 2026.09.04(JST)
 - Forge NeoのZ-Image, Anima, Krea2に対応
 - 上記モデルでCFGが領域数だけ倍になっていた問題を修正
@@ -18,6 +26,7 @@ ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.co
 | Z-Image       | ○      | △         | ×           |
 | Krea2         | ○      | ○         | ×           |
 | Anima         | ○      | ○         | ×           |
+| MOSS-Image    | ○      | ○         | ×           |
 
 ○：対応  
 △：風景や人物の描き分けは良好ですが、両方の領域がそれぞれ「無地の背景に置かれた単体の主役」を要求するような場合は一つに融合しがちです。  
@@ -25,7 +34,7 @@ ENGLISH: [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.co
 
 　領域別LoRAはU-Netのブロック名を前提としているため、これらのモデルでは対象が見つからず何も起こりません。
 
-　これらのモデルはプロンプトを75トークンごとに分割しないため、SD/SDXLのように一つのプロンプトを切り分けることができません。代わりに領域ごとに個別にエンコードし、モデル自身のattentionの中で領域を分離します。画像トークンからは画像全体が見えたままなので一枚の絵としてまとまり、テキストは自分の領域のものだけが見えます。[こちら](https://note.com/gcem156/n/n5489ac014a55)で解説されている手法です。
+　これらのモデルはプロンプトを75トークンごとに分割しないため、SD/SDXLのように一つのプロンプトを切り分けることができません。代わりに領域ごとに個別にエンコードし、モデル自身のattentionの中で領域を分離します。画像トークンからは画像全体が見えたままなので一枚の絵としてまとまり、テキストは自分の領域のものだけが見えます。[こちら](https://note.com/gcem156/n/n5489ac014a55)で解説されている手法です。MOSS-Imageは系列の並びが逆で、画像の後にテキストが続きます。また2つのtext embedderブロックはテキストだけを見るので、ここでも領域ごとに分けています。トークンの格子が16pxなので、領域の境界が階段状になることがあります。
 
 　Animaは単独のcross attentionを持つ構造なので、一つのsoftmaxの中で領域を分けることができません。こちらもcross attentionは同様にブロックし、加えてself attentionには閉じるのではなく小さなペナルティを与えます。適用するのはスケジュールの最初の1/3だけで、それ以降はマスクを外してモデルに領域をなじませます。これはComfyUI用の[Anima Regional Conditioning](https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning)の手法に倣ったものです。self attentionを完全に閉じると分離は強くなりますが、各領域が自分の半分だけで構図を組むためコラージュになります。
 

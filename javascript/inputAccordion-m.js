@@ -24,6 +24,13 @@ function setupAccordion_m(accordion) {
 
     accordion.visibleCheckbox = visibleCheckbox;
 
+    // the webui calls this from inputAccordionChecked() whenever the gradio
+    // checkbox changes, for example when an infotext is pasted
+    accordion.onVisibleCheckboxChange = function() {
+        gradioCheckbox.checked = visibleCheckbox.checked;
+        gradioCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
     if (extra) {
         labelWrap.insertBefore(extra, labelWrap.lastElementChild);
     }
