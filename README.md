@@ -9,6 +9,14 @@
 [<img src="https://img.shields.io/badge/言語-日本語-green.svg?style=plastic" height="25" />](https://github.com/hako-mikan/sd-webui-regional-prompter/blob/main/README.JP.md)
 [<img src="https://img.shields.io/badge/Support-%E2%99%A5-magenta.svg?logo=github&style=plastic" height="25" />](https://github.com/sponsors/hako-mikan)
 
+## Updates 2026.10.25.0100 (JST)
+- support MOSS-Image on Forge Neo, in Latent and Attention mode
+- fix Regional Prompter doing nothing on A1111 and reForge since the update of 2026.09.04, which raised `No module named 'backend'` there
+- fix the checkbox of Regional Prompter switching LoRA Block Weight instead (and the other way round) when both are installed: their accordions shared element ids
+- fix the LoRA stop step raising `object of type 'int' has no len()` on Forge (#400)
+- fix two LoRAs in Latent mode coming out weaker and different on every run with the same settings on Forge (#400)
+- fix Regional Prompter switching Forge's on-the-fly LoRA off after every generation, active or not, which broke the LoRA on GGUF and low bit Flux models (#409)
+
 ## Updates 2026.09.04 (JST)
 - support the Forge Neo models: Z-Image, Anima, Krea2
 - fix the guidance being multiplied by the number of regions on those models
@@ -18,6 +26,7 @@
 | Z-Image       | ○      | △         | ×           |
 | Krea2         | ○      | ○         | ×           |
 | Anima         | ○      | ○         | ×           |
+| MOSS-Image    | ○      | ○         | ×           |
 
 ○ : Supported  
 △ : Scenery and figures separate well, but two regions that each want to be the single centred subject on a plain background tend to merge into one.  
@@ -31,6 +40,10 @@ own instead, and the regions are separated inside the model's own attention:
 an image token still sees the whole image, which is what keeps the result one
 picture rather than a collage, but it only sees the prompt of its own region.
 This is the method described [here (Japanese)](https://note.com/gcem156/n/n5489ac014a55).
+MOSS-Image lays its sequence out the other way round, image first and text after
+it, and its two text embedder blocks see the text alone, so those are kept to one
+region each as well. The token grid is 16 pixels, so the edge between two regions
+can come out stepped.
 
 Anima has a cross attention of its own instead, so there is no single softmax to
 separate the regions inside. Its cross attention is blocked in the same way, and

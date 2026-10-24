@@ -34,6 +34,12 @@ orig_Linear_forward = None
 
 orig_lora_functional = False
 
+# what online_lora was before Latent mode turned it on, None while it has not.
+# Kept here rather than on the script, which is reset before the unload runs:
+# restoring from there set online_lora to False after every generation, RP
+# active or not, and broke the LoRA on the GGUF and low bit Flux models (#409)
+saved_online_lora = None
+
 lactive = False
 nactive = False
 labug =False
@@ -69,6 +75,9 @@ def setuploras(self):
         else:
             shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
         from backend.args import dynamic_args
+        global saved_online_lora
+        if saved_online_lora is None:
+            saved_online_lora = dynamic_args["online_lora"]
         dynamic_args["online_lora"] = True
         import networks as net
         net.load_networks = load_networks
@@ -78,7 +87,9 @@ def setuploras(self):
     if reforge:
         shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
 
-TE_TRIPWIRE = "layers.0.self_attn.q_proj"
+# the first linear of the first layer. Qwen3.5 (MOSS-Image) starts with a linear
+# attention layer, which has no q_proj
+TE_TRIPWIRES = ("layers.0.self_attn.q_proj", "layers.0.linear_attn.in_proj_qkv")
 
 
 def hook_text_encoder_start(clip):
@@ -86,15 +97,15 @@ def hook_text_encoder_start(clip):
     region's prompt is being encoded, so that the region LoRA can be switched
     there. Which encoder that is depends on the model: clip_l on SD and SDXL,
     and on Forge Neo it is an LLM instead - qwen3 for Z-Image, qwen3_06b for
-    Anima, qwen3vl_4b for Krea2 - so go by the shape of the module path rather
-    than by the name of the encoder."""
+    Anima, qwen3vl_4b for Krea2, qwen35_9b for MOSS-Image - so go by the shape
+    of the module path rather than by the name of the encoder."""
     encoders = dict(clip.cond_stage_model.named_children())
     # keep the previous choice where it exists, the first attention of CLIP-L
     order = (["clip_l"] if "clip_l" in encoders else []) + [k for k in encoders if k != "clip_l"]
 
     for key in order:
         for name, module in encoders[key].named_modules():
-            if name.endswith(TE_TRIPWIRE):
+            if name.endswith(TE_TRIPWIRES):
                 if not hasattr(module, "rp_original_forward"):
                     module.rp_original_forward = module.forward
                 module.forward = forge_linear_forward.__get__(module)
@@ -706,6 +717,7 @@ class LoRARegioner:
         self.stopped = False
         self.stopped_hr = False
         self.orig_weight = {}
+        self.orig_te_weight = {}
 
         try:
             import lora_ctl_network as ctl
@@ -805,6 +817,33 @@ class LoRARegioner:
         self.stopped = False
         self.stopped_hr = False
         self.orig_weight = {}
+        self.orig_te_weight = {}
+
+    def restore(self):
+        """Put the strengths te_start_f and set_region wrote into Forge's LoRA
+        patches back. Left as the last region had them, the next generation
+        took those for the originals, so two LoRAs in Latent mode came out
+        weaker and different every time the same settings were run (#400)."""
+        model = shared.sd_model
+        unet = getattr(getattr(model, "forge_objects", None), "unet", None)
+        if unet is not None and self.orig_weight:
+            for name, module in unet.model.named_modules():
+                patches = getattr(module, "forge_online_loras", None)
+                if patches is None or name not in self.orig_weight:
+                    continue
+                for patch, weight in zip(patches.get("weight", None) or [], self.orig_weight[name]):
+                    patch[0] = weight
+
+        self.orig_weight = {}
+
+        if self.orig_te_weight:
+            patcher = model.forge_objects.clip.patcher
+            for (lora_key, patch_key), weight in self.orig_te_weight.items():
+                patch = patcher.lora_patches.get(lora_key, {}).get(patch_key)
+                if patch:
+                    patch[0][0] = weight
+            refresh(patcher.lora_loader, lora_patches=patcher.lora_patches, offload_device=patcher.offload_device)
+            self.orig_te_weight = {}
 
     def te_start_f(self):
         self.mlist = self.te_llist[self.te_count % len(self.te_llist)]
@@ -825,9 +864,9 @@ class LoRARegioner:
                     if labug: 
                         print(f"LoRA {lora_key} detected in {self.mlist}")
                     for patch_key in patch:
-                        if patch_key + list_key not in self.orig_weight:
-                            self.orig_weight[patch_key + list_key] = patch[patch_key][0][0]
-                        patch[patch_key][0][0] = self.orig_weight[patch_key + list_key] * self.mlist[list_key]
+                        if (lora_key, patch_key) not in self.orig_te_weight:
+                            self.orig_te_weight[(lora_key, patch_key)] = patch[patch_key][0][0]
+                        patch[patch_key][0][0] = self.orig_te_weight[(lora_key, patch_key)] * self.mlist[list_key]
 
         refresh(lora_lorader, lora_patches=lora_patches, offload_device=offload_device)
 
@@ -857,14 +896,14 @@ class LoRARegioner:
 
         stopstep = self.stop_hr if in_hr else self.stop
         if self.step >= stopstep:
-            if (self.stopped_hr if in_hr else self.stopped):
-                return
-            else:
-                set_strengths(0)
+            if not (self.stopped_hr if in_hr else self.stopped):
+                # one zero per LoRA; a bare 0 has no len() (#400)
+                set_strengths([0] * len(strengths))
                 if in_hr:
                     self.stopped_hr = True
                 else:
                     self.stopped = True
+            return
 
         set_strengths(strengths)
 
@@ -958,7 +997,7 @@ def changethedevice(module):
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
 def unloadlorafowards(self):
-    global orig_Linear_forward, lactive, labug
+    global orig_Linear_forward, lactive, labug, saved_online_lora
     lactive = labug = False
 
     unhook_neo_cond_batch()
@@ -970,8 +1009,14 @@ def unloadlorafowards(self):
 
     import lora
     if forge:
-        from backend.args import dynamic_args
-        dynamic_args["online_lora"] = self.orig_online_lora
+        try:
+            regioner.restore()
+        except Exception as e:
+            print("Regional Prompter: could not put the LoRA strengths back:", e)
+        if saved_online_lora is not None:
+            from backend.args import dynamic_args
+            dynamic_args["online_lora"] = saved_online_lora
+            saved_online_lora = None
     else:
         emb_db = sd_hijack.model_hijack.embedding_db
         for net in lora.loaded_loras:

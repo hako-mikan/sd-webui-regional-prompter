@@ -129,11 +129,11 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 # prompt, so there is nothing to slice: the replaced calc_cond_uncond_batch in
 # latent.py joins them into one context and says which token belongs to where.
 
-DIT_ATTENTION_MODELS = ("Krea2", "ZImage", "Anima")
+DIT_ATTENTION_MODELS = ("Krea2", "ZImage", "Anima", "MOSSImage")
 
 # Which axis of the conditioning the prompt's tokens run along, so the regions
 # can be joined into one context. Anima carries a singleton axis in front of it.
-DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 2}
+DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 2, "MOSSImage": 1}
 
 PAD = -1  # a token no region owns, which everything may see
 DIT_MAX_PAD = 256  # the most padding either model rounds a sequence up by
@@ -250,10 +250,11 @@ def dit_text_mask(self, txtlen, device):
     return mask
 
 
-def dit_joint_mask(self, tokens, txtlen, device):
-    """Text first, then image, as both models lay the joint sequence out."""
+def dit_joint_mask(self, tokens, txtlen, device, text_first=True):
+    """Text first, then image, as Krea2 and Z-Image lay the joint sequence out.
+    MOSS-Image puts the image first and the text after it."""
     cache = getattr(self, "dit_jointcache", None)
-    if cache is not None and cache[0] == (tokens, txtlen):
+    if cache is not None and cache[0] == (tokens, txtlen, text_first):
         return cache[1]
 
     text = text_owners(self, txtlen)
@@ -261,12 +262,16 @@ def dit_joint_mask(self, tokens, txtlen, device):
     if text is None or image is None or len(set(int(x) for x in image.unique()) - {PAD}) < 2:
         return None
 
-    owner = torch.cat([text.to(device), image.to(device)])
     is_img = torch.zeros(tokens, dtype=torch.bool, device=device)
-    is_img[txtlen:] = True
+    if text_first:
+        owner = torch.cat([text.to(device), image.to(device)])
+        is_img[txtlen:] = True
+    else:
+        owner = torch.cat([image.to(device), text.to(device)])
+        is_img[:tokens - txtlen] = True
 
     mask = mask_of(owner, is_img)
-    self.dit_jointcache = ((tokens, txtlen), mask)
+    self.dit_jointcache = ((tokens, txtlen, text_first), mask)
     return mask
 
 
@@ -362,6 +367,7 @@ def hook_dit_forwards(self, root_module, remove=False):
     self.hooked = not remove
 
     hook_masked_attention(remove)
+    hook_moss_attention(self, remove)
     self.dit_pad = 1
 
     for name, module in root_module.named_modules():
@@ -464,7 +470,12 @@ def hook_masked_attention(remove=False):
     then ignore it, so a masked call has to go through PyTorch's own attention.
     Only the calls that carry a mask are diverted."""
     global orig_attention_function
-    import backend.attention as batt
+    try:
+        import backend.attention as batt
+    except ImportError:
+        # A1111 and reForge have no backend package. The unload calls this on
+        # every generation, so failing here broke Regional Prompter there
+        return
 
     targets = [sys.modules[name] for name in ("backend.nn.krea", "backend.nn.lumina")
                if name in sys.modules and hasattr(sys.modules[name], "attention_function")]
@@ -490,6 +501,47 @@ def hook_masked_attention(remove=False):
 
     for module in targets:
         module.attention_function = attention_function
+
+
+orig_moss_attention = None
+
+
+def hook_moss_attention(self, remove=False):
+    """MOSS-Image takes no attention mask anywhere, its blocks call the module's
+    attention_function directly. So replace that, and lay the mask on there: its
+    two text_embedder blocks see the text alone, the rest the image followed by
+    the text. Only the masked calls leave the original attention, like above."""
+    global orig_moss_attention
+    module = sys.modules.get("backend.nn.moss_image")
+    if module is None or not hasattr(module, "attention_function"):
+        return
+
+    if remove:
+        if orig_moss_attention is not None:
+            module.attention_function = orig_moss_attention
+            orig_moss_attention = None
+        return
+
+    if orig_moss_attention is not None:
+        return
+
+    import backend.attention as batt
+    original = orig_moss_attention = module.attention_function
+
+    def attention_function(q, k, v, heads, mask=None, **kwargs):
+        if mask is None and neo_owner is not None:
+            txtlen = neo_owner.shape[0]
+            if q.shape[1] == txtlen:
+                mask = dit_text_mask(self, txtlen, q.device)
+            elif q.shape[1] > txtlen:
+                mask = dit_joint_mask(self, q.shape[1], txtlen, q.device, text_first=False)
+        if mask is None:
+            return original(q, k, v, heads, **kwargs)
+        kwargs.pop("transformer_options", None)
+        kwargs.pop("attn_precision", None)
+        return batt.attention_pytorch(q, k, v, heads, mask=mask, **kwargs)
+
+    module.attention_function = attention_function
 
 
 
