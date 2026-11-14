@@ -376,7 +376,8 @@ def hook_dit_forwards(self, root_module, remove=False):
         if kind == "SelfCrossAttention":
             # Anima, masked at the attention itself rather than through a block
             if remove:
-                module.__dict__.pop("torch_attention_op", None)
+                if getattr(module.torch_attention_op, "rp_hooked", False):
+                    module.__dict__.pop("torch_attention_op", None)
             elif "torch_attention_op" not in module.__dict__:
                 module.torch_attention_op = hook_anima_attention(self, module)
             continue
@@ -394,8 +395,14 @@ def hook_dit_forwards(self, root_module, remove=False):
             continue
 
         if remove:
-            module.__dict__.pop("forward", None)
+            original = getattr(module.forward, "rp_original", None)
+            if original is not None:
+                if module.forward.rp_had_instance:
+                    module.forward = original
+                else:
+                    module.__dict__.pop("forward", None)
         elif not getattr(module.forward, "rp_hooked", False):
+            hooked.rp_had_instance = "forward" in module.__dict__
             module.forward = hooked
 
 
@@ -462,14 +469,13 @@ def neo_spans(tokens):
     return list(zip(edges[:-1], edges[1:]))
 
 
-orig_attention_function = None
+saved_attention_functions = []
 
 
 def hook_masked_attention(remove=False):
     """SageAttention and the other fused kernels take an attn_mask argument and
     then ignore it, so a masked call has to go through PyTorch's own attention.
     Only the calls that carry a mask are diverted."""
-    global orig_attention_function
     try:
         import backend.attention as batt
     except ImportError:
@@ -481,26 +487,29 @@ def hook_masked_attention(remove=False):
                if name in sys.modules and hasattr(sys.modules[name], "attention_function")]
 
     if remove:
-        if orig_attention_function is not None:
-            for module in targets:
-                module.attention_function = orig_attention_function
-            orig_attention_function = None
+        for module, original, installed in saved_attention_functions:
+            if module.attention_function is installed:
+                module.attention_function = original
+        saved_attention_functions.clear()
         return
 
-    if orig_attention_function is not None or not targets:
+    if saved_attention_functions or not targets:
         return
 
-    orig_attention_function = batt.attention_function
-
-    def attention_function(q, k, v, heads, mask=None, **kwargs):
-        if mask is None:
-            return orig_attention_function(q, k, v, heads, mask=mask, **kwargs)
-        kwargs.pop("transformer_options", None)
-        kwargs.pop("attn_precision", None)
-        return batt.attention_pytorch(q, k, v, heads, mask=mask, **kwargs)
+    def masked(original):
+        def attention_function(q, k, v, heads, mask=None, **kwargs):
+            if mask is None:
+                return original(q, k, v, heads, mask=mask, **kwargs)
+            kwargs.pop("transformer_options", None)
+            kwargs.pop("attn_precision", None)
+            return batt.attention_pytorch(q, k, v, heads, mask=mask, **kwargs)
+        return attention_function
 
     for module in targets:
-        module.attention_function = attention_function
+        original = module.attention_function
+        installed = masked(original)
+        saved_attention_functions.append((module, original, installed))
+        module.attention_function = installed
 
 
 orig_moss_attention = None
@@ -547,16 +556,23 @@ def hook_moss_attention(self, remove=False):
 
 def hook_forwards(self, p, remove=False):
     self.need_hook = not remove
-    root = p.sd_model.forge_objects.unet.model if forge else p.sd_model.model.diffusion_model
     import scripts.latent as lat
+    roots = getattr(self, "_rp_attention_roots", [])
 
     if remove:
         # which path put them there cannot be told from the calc mode any more,
         # the user may have just changed it, so take both back
-        hook_dit_forwards(self, root, True)
-        hook_forwards_x(self, root, True)
+        for previous in roots:
+            hook_dit_forwards(self, previous, True)
+            hook_forwards_x(self, previous, True)
+        self._rp_attention_roots = []
         lat.unhook_neo_cond_batch()
         return
+
+    root = p.sd_model.forge_objects.unet.model if forge else p.sd_model.model.diffusion_model
+    if not any(previous is root for previous in roots):
+        roots.append(root)
+    self._rp_attention_roots = roots
 
     if getattr(self, "dit_attn", False):
         hook_dit_forwards(self, root, False)
@@ -569,9 +585,17 @@ def hook_forwards_x(self, root_module: torch.nn.Module, remove=False):
     self.hooked = True if not remove else False
     for name, module in root_module.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":
-            module.forward = hook_forward(self, module)
             if remove:
-                del module.forward
+                original = getattr(module.forward, "rp_original", None)
+                if original is not None:
+                    if module.forward.rp_had_instance:
+                        module.forward = original
+                    else:
+                        module.__dict__.pop("forward", None)
+            elif not getattr(module.forward, "rp_hooked", False):
+                hooked = rp_hook(module.forward, hook_forward(self, module))
+                hooked.rp_had_instance = "forward" in module.__dict__
+                module.forward = hooked
 
 ################################################################################
 ##### Attention mode 

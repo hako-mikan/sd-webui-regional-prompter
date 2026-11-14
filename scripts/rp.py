@@ -16,6 +16,7 @@ from json.decoder import JSONDecodeError
 import scripts.attention as att
 from scripts.attention import (TOKENS, hook_forwards, reset_pmasks, savepmasks)
 from scripts.latent import (denoised_callback_s, denoiser_callback_s, lora_namer, setuploras, unloadlorafowards, forge_linear_forward)
+from scripts.lora_compat import regional_loras, deduplicate_loras, generation_cleanup, supports_region_patches
 from scripts.regions import (MAXCOLREG, IDIM, KEYBRK, KEYBASE, KEYCOMM, KEYPROMPT, ALLKEYS, ALLALLKEYS,
                              create_canvas, draw_region, change_color,#detect_mask, detect_polygons,  
                              draw_image, save_mask, load_mask, changecs,
@@ -462,6 +463,9 @@ class Script(modules.scripts.Script):
 
     def process(self, p, active, a_debug , rp_selected_tab, mmode, xmode, pmode, aratios, bratios,
                 usebase, usecom, usencom, calcmode, options, lnter, lnur, threshold, polymask, lstop, lstop_hr, flipper):
+        cleanup = getattr(self, "_rp_cleanup", None)
+        if cleanup is not None:
+            cleanup()
         
         if type(options) is bool:
             options = ["disable convert 'AND' to 'BREAK'"] if options else []
@@ -557,6 +561,8 @@ class Script(modules.scripts.Script):
         usebase, usecom, usencom, p.batch_size, lstop, lstop_hr, diff = diff)
 
         self.all_prompts = p.all_prompts.copy()
+        self._rp_batch_cond_uncond = shared.opts.batch_cond_uncond if hasattr(shared.opts, "batch_cond_uncond") else shared.batch_cond_uncond
+        generation_cleanup(self, p, unloader)
         self.all_negative_prompts = p.all_negative_prompts.copy()
         self.optbreak = OPTBREAK in options
         self.hiresacts = [OPTAHIRES in options, OPTDHIRES in options]
@@ -602,14 +608,13 @@ class Script(modules.scripts.Script):
             if "Att" in calcmode:
                 hook_forwards(self, p)
                 if hasattr(shared.opts,"batch_cond_uncond"):
-                    shared.opts.batch_cond_uncond = orig_batch_cond_uncond
+                    shared.opts.batch_cond_uncond = self._rp_batch_cond_uncond
                 else:                    
-                    shared.batch_cond_uncond = orig_batch_cond_uncond
+                    shared.batch_cond_uncond = self._rp_batch_cond_uncond
                 unloadlorafowards(self)
                 denoiserdealer(self, True)
             else:
                 hook_forwards(self, p, remove = True)
-                setuploras(self)
                 # SBM It is vital to use local activation because callback registration is permanent,
                 # and there are multiple script instances (txt2img / img2img). 
 
@@ -626,6 +631,20 @@ class Script(modules.scripts.Script):
         blankdealer(self, p)                                               #add "_" if prompt of last region is blank
         commondealer(p, self.usecom, self.usencom, flip_prompt)          #add commom prompt to all region
         if "La" in self.calc or self.dit_attn: allchanger(p, KEYBRK,"AND")      #replace BREAK to AND in Latent mode, and for the DiT models whose prompt is not chunked
+        self.region_lora = regional_loras(p.all_prompts, "AND" if "La" in self.calc or self.dit_attn else KEYBRK)
+        if forge and self.is_llm_te and self.region_lora:
+            unsupported_loras(self, p, "regional LoRAs are not supported for this model. "
+                              "Put the same global LoRA in every region (or use ADDCOMM).")
+        if "La" in self.calc and "Pro" not in self.mode:
+            # Stop-step controls still need region switching on the U-Net models.
+            self.region_lora = self.region_lora or (not self.is_llm_te and any(int(value or 0) for value in (lstop, lstop_hr)))
+            if forge and self.region_lora and not supports_region_patches(p.sd_model):
+                unsupported_loras(self, p, "this Forge backend's patch format does not support "
+                                  "regional LoRA switching or LoRA stop steps. Global LoRAs work with ADDCOMM "
+                                  "in Attention and Latent modes.")
+            setuploras(self)
+        if forge and not self.region_lora:
+            p.all_prompts = [deduplicate_loras(prompt) for prompt in p.all_prompts]
         if tokendealer(self, p): return unloader(self,p)          #count tokens and calcrate target tokens
         if self.optbreak: allchanger(p,KEYBRK_R,KEYBRK)
         thresholddealer(self, p, threshold)                          #set threshold
@@ -720,19 +739,35 @@ class Script(modules.scripts.Script):
         else:
             return self.hiresacts[0]
 
+def unsupported_loras(self, p, message):
+    unloader(self, p)
+    p.extra_generation_params["RP Active"] = False
+    p.extra_generation_params["RP LoRA Error"] = message
+    if hasattr(p, "comment"):
+        p.comment("Regional Prompter: " + message)
+    raise ValueError("Regional Prompter: " + message)
+
+
 def unloader(self,p):
-    if self.hooked:
-        #print("unloaded")
-        hook_forwards(self, p, remove=True)
+    # Disarm the close fallback on a normal postprocess or an early return.
+    cleanup = getattr(self, "_rp_cleanup", None)
+    if cleanup is not None:
+        return cleanup()
+    try:
+        if self.hooked:
+            hook_forwards(self, p, remove=True)
+    finally:
+        try:
+            unloadlorafowards(self)
+        finally:
+            saved_batch = self.__dict__.pop("_rp_batch_cond_uncond", None)
+            self.__init__()
+            if saved_batch is not None:
+                if hasattr(shared.opts,"batch_cond_uncond"):
+                    shared.opts.batch_cond_uncond = saved_batch
+                else:
+                    shared.batch_cond_uncond = saved_batch
 
-    self.__init__()
-    
-    if hasattr(shared.opts,"batch_cond_uncond"):
-        shared.opts.batch_cond_uncond = orig_batch_cond_uncond
-    else:                    
-        shared.batch_cond_uncond = orig_batch_cond_uncond
-
-    unloadlorafowards(self)
 
 def denoiserdealer(self, only_r):
     if not hasattr(self,"dr_callbacks"):

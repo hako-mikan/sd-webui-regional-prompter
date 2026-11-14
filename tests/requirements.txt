@@ -1,0 +1,4 @@
+pytest>=8
+numpy
+pillow
+packaging

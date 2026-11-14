@@ -309,7 +309,7 @@ def makeimgtmp(aratios,mode,usecom,usebase, flipper,ho,wo, options = [], image =
     draw = PIL.ImageDraw.Draw(regions)
     c = 0
     def coldealer(col):
-        if sum(col) > 380:return "black"
+        if sum(int(channel) for channel in col) > 380:return "black"
         else:return "white"
     # Add region counters at the top left corner, coloured according to hue.
     for (i,ocell) in enumerate(aratios2r):

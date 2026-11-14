@@ -7,6 +7,7 @@ from torchvision.transforms import InterpolationMode, Resize  # Mask.
 import scripts.attention as att
 from scripts.regions import floatdef
 from scripts.attention import makerrandman
+from scripts.lora_compat import regional_loader
 
 from modules import launch_utils
 forge = launch_utils.git_tag()[0:2] == "f2" or launch_utils.git_tag().split(" ")[0] == "neo"
@@ -32,7 +33,14 @@ in_hr = False
 layer_name = "lora_layer_name"
 orig_Linear_forward = None
 
-orig_lora_functional = False
+saved_lora_functional = None
+saved_load_networks = None
+installed_load_networks = None
+saved_te_forwards = []
+saved_unet_wrappers = []
+saved_cond_patchers = []
+saved_lora_model = None
+region_lora_active = False
 
 # what online_lora was before Latent mode turned it on, None while it has not.
 # Kept here rather than on the script, which is reset before the unload runs:
@@ -48,44 +56,71 @@ MAXID = 10000
 LORAID = MINID # Discriminator for repeated lora usage / across gens, presumably.
 
 def setuploras(self):
-    global lactive, labug, islora, orig_Linear_forward, orig_lora_functional, layer_name
+    global lactive, labug, islora, orig_Linear_forward, saved_lora_functional, layer_name, region_lora_active, saved_lora_model
     lactive = True
     labug = self.debug
     islora = self.isbefore15
     layer_name = self.layer_name
-    orig_lora_functional = orig_lora_functional = shared.opts.lora_functional if hasattr(shared.opts,"lora_functional") else False
 
-    try:
+    # Latent blending is independent of region LoRA switching. In particular the
+    # LLM models only support global LoRAs, which must use the host unchanged.
+    if forge or reforge:
+        if getattr(self, "is_llm_te", False):
+            hook_neo_cond_batch(self)
+        else:
+            hook_unet_wrapper(self)
+    if forge and not self.region_lora:
+        return
+    if region_lora_active:
+        return
+    region_lora_active = True
+    saved_lora_model = shared.sd_model
+    if hasattr(shared.opts, "lora_functional"):
+        saved_lora_functional = shared.opts.lora_functional
+
+    if saved_lora_functional is not None:
         if 150 <= self.ui_version <= 159 or self.slowlora:
             shared.opts.lora_functional = False
         else:
             shared.opts.lora_functional = True
-    except:
-        pass
 
     is15 = 150 <= self.ui_version <= 159
-    orig_Linear_forward = torch.nn.Linear.forward
-    torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
+    if orig_Linear_forward is None:
+        orig_Linear_forward = torch.nn.Linear.forward
+        torch.nn.Linear.forward = h15_Linear_forward if is15 else h_Linear_forward
 
     if forge:
-        if getattr(self, "is_llm_te", False):
-            # the batch the model function wrapper is handed cannot be trusted on
-            # these, see the note above hook_neo_cond_batch
-            hook_neo_cond_batch(self)
-        else:
-            shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
         from backend.args import dynamic_args
         global saved_online_lora
         if saved_online_lora is None:
             saved_online_lora = dynamic_args["online_lora"]
         dynamic_args["online_lora"] = True
         import networks as net
-        net.load_networks = load_networks
+        global saved_load_networks, installed_load_networks
+        saved_load_networks = net.load_networks
+        # Only regional switching needs unit patches. The native loader owns file
+        # formats, model mappings, caching and its backend-specific return value.
+        installed_load_networks = regional_loader(net.load_networks)
+        net.load_networks = installed_load_networks
 
         if not hook_text_encoder_start(shared.sd_model.forge_objects.clip):
             print("Regional Prompter: could not find a place to watch the text encoder, the region LoRA will not switch")
-    if reforge:
-        shared.sd_model.forge_objects.unet.set_model_unet_function_wrapper(lambda apply, params: denoised_callback_s(apply, params, p3=self))
+
+
+def hook_unet_wrapper(self):
+    unet = shared.sd_model.forge_objects.unet
+    if any(patcher is unet for _, patcher, _, _ in saved_unet_wrappers):
+        return
+    original = unet.model_options.get("model_function_wrapper")
+
+    def wrapper(apply, params):
+        if original is not None:
+            apply_original = apply
+            apply = lambda x, t, **c: original(apply_original, dict(params, input=x, timestep=t, c=c))
+        return denoised_callback_s(apply, params, p3=self)
+
+    saved_unet_wrappers.append((shared.sd_model, unet, original, wrapper))
+    unet.set_model_unet_function_wrapper(wrapper)
 
 # the first linear of the first layer. Qwen3.5 (MOSS-Image) starts with a linear
 # attention layer, which has no q_proj
@@ -108,6 +143,7 @@ def hook_text_encoder_start(clip):
             if name.endswith(TE_TRIPWIRES):
                 if not hasattr(module, "rp_original_forward"):
                     module.rp_original_forward = module.forward
+                    saved_te_forwards.append((module, "forward" in module.__dict__))
                 module.forward = forge_linear_forward.__get__(module)
                 return True
     return False
@@ -235,6 +271,8 @@ def hook_neo_cond_batch(self):
     unet = shared.sd_model.forge_objects.unet
     if hasattr(unet, "add_conditioning_modifier"):
         unet.add_conditioning_modifier(normalise_cond_strengths, ensure_uniqueness=True)
+        if not any(patcher is unet for _, patcher in saved_cond_patchers):
+            saved_cond_patchers.append((shared.sd_model, unet))
     else:
         print("Regional Prompter: cannot reach the conditioning modifiers, "
               "the guidance will be multiplied by the number of regions")
@@ -262,14 +300,16 @@ def hook_neo_cond_batch(self):
 
         out_cond = torch.zeros_like(x_in)
         for i, one in enumerate(cond):
-            regioner.set_region(i)
+            if region_lora_active:
+                regioner.set_region(i)
             region_out, _ = original(model, [one], None, x_in, timestep, model_options)
             out_cond += region_out * filters[i].to(device=region_out.device, dtype=region_out.dtype)
 
         if uncond is None:
             return out_cond, torch.zeros_like(x_in)
 
-        regioner.set_region(0)
+        if region_lora_active:
+            regioner.set_region(0)
         _, out_uncond = original(model, [], uncond, x_in, timestep, model_options)
         return out_cond, out_uncond
 
@@ -281,6 +321,19 @@ def hook_neo_cond_batch(self):
 def unhook_neo_cond_batch():
     global nactive
     nactive = False
+
+    patchers = [patcher for _, patcher in saved_cond_patchers]
+    models = [model for model, _ in saved_cond_patchers] + [shared.sd_model]
+    for model in models:
+        for attr in ("forge_objects", "forge_objects_original", "forge_objects_after_applying_lora"):
+            patcher = getattr(getattr(model, attr, None), "unet", None)
+            if patcher is not None:
+                patchers.append(patcher)
+    for patcher in patchers:
+        modifiers = patcher.model_options.get("conditioning_modifiers", [])
+        if normalise_cond_strengths in modifiers:
+            modifiers.remove(normalise_cond_strengths)
+    saved_cond_patchers.clear()
 
     try:
         from backend.sampling import sampling_function as sf
@@ -450,7 +503,8 @@ def denoised_callback_s(p1, p2 = None, p3 = None):
 
         outs = []
         for i in range(length):
-            regioner.set_region(length - i - 1)
+            if region_lora_active:
+                regioner.set_region(length - i - 1)
             c["c_crossattn"] = conds[i*batch:i*batch+batch]
             if y is not None:
                 c["y"] = y[i*batch:i*batch+batch]
@@ -586,6 +640,8 @@ flokey = lambda x: (x.split("added_by_regional_prompter")[0]
                     .split("added_by_lora_block_weight")[0].split("_in_LBW")[0].split("_in_RP")[0])
 
 def lora_namer(self, p, lnter, lnur):
+    if forge and not self.region_lora:
+        return
     ldict_u = {}
     ldict_te = {}
     lorder = [] # Loras call order for matching with u/te lists.
@@ -607,16 +663,30 @@ def lora_namer(self, p, lnter, lnur):
 
         names = ""
         tdict = {}
+        tdict_te = {}
 
         for called in calledloras:
+            if forge and called.items[0] not in name_to_hash:
+                # The native loader has already reported missing/invalid files.
+                continue
             names = names + name_to_hash[called.items[0]] if forge else names + called.items[0]
-            tdict[name_to_hash[called.items[0]] if forge else called.items[0]] = syntaxdealer(called.items,"unet=",1)
+            key = name_to_hash[called.items[0]] if forge else called.items[0]
+            if forge:
+                positional = called.positional
+                te = (0 if "@" in str(positional[1]) else float(positional[1])) if len(positional) > 1 else 1.0
+                te = float(called.named.get("te", te))
+                unet = float(positional[2]) if len(positional) > 2 else te
+                tdict[key] = float(called.named.get("unet", unet))
+                tdict_te[key] = te
+            else:
+                tdict[key] = syntaxdealer(called.items,"unet=",1)
+                tdict_te[key] = tdict[key]
 
         for key in ldictlist_u[i].keys():
             shin_key = flokey(key) 
             if shin_key in names:
                 ldictlist_u[i+1][key] = float(tdict[shin_key])
-                ldictlist_te[i+1][key] = float(tdict[shin_key])
+                ldictlist_te[i+1][key] = float(tdict_te[shin_key])
                 if key not in lorder:
                     lorder.append(key)
             else:
@@ -819,12 +889,12 @@ class LoRARegioner:
         self.orig_weight = {}
         self.orig_te_weight = {}
 
-    def restore(self):
+    def restore(self, model=None):
         """Put the strengths te_start_f and set_region wrote into Forge's LoRA
         patches back. Left as the last region had them, the next generation
         took those for the originals, so two LoRAs in Latent mode came out
         weaker and different every time the same settings were run (#400)."""
-        model = shared.sd_model
+        model = model if model is not None else shared.sd_model
         unet = getattr(getattr(model, "forge_objects", None), "unet", None)
         if unet is not None and self.orig_weight:
             for name, module in unet.model.named_modules():
@@ -895,7 +965,7 @@ class LoRARegioner:
                             weight_patches[i][0] = strengths[i] * self.orig_weight[name][i]
 
         stopstep = self.stop_hr if in_hr else self.stop
-        if self.step >= stopstep:
+        if stopstep and self.step >= stopstep:
             if not (self.stopped_hr if in_hr else self.stopped):
                 # one zero per LoRA; a bare 0 has no len() (#400)
                 set_strengths([0] * len(strengths))
@@ -997,20 +1067,59 @@ def changethedevice(module):
         module.bias = torch.nn.Parameter(module.bias.to(devices.device, dtype=torch.float))
 
 def unloadlorafowards(self):
-    global orig_Linear_forward, lactive, labug, saved_online_lora
+    global orig_Linear_forward, lactive, labug, saved_online_lora, saved_lora_functional
+    global saved_load_networks, installed_load_networks, region_lora_active, saved_lora_model
     lactive = labug = False
 
     unhook_neo_cond_batch()
         
-    try:
-        shared.opts.lora_functional =  orig_lora_functional
-    except:
-        pass
+    if saved_lora_functional is not None:
+        shared.opts.lora_functional = saved_lora_functional
+        saved_lora_functional = None
+
+    for module, had_instance in saved_te_forwards:
+        if had_instance:
+            module.forward = module.rp_original_forward
+        else:
+            module.__dict__.pop("forward", None)
+        del module.rp_original_forward
+    saved_te_forwards.clear()
+
+    for model, unet, original, wrapper in saved_unet_wrappers:
+        # The native loader clones patchers, carrying the wrapper with them.
+        patchers = [unet]
+        for owner in (model, shared.sd_model):
+            for attr in ("forge_objects", "forge_objects_original", "forge_objects_after_applying_lora"):
+                patcher = getattr(getattr(owner, attr, None), "unet", None)
+                if patcher is not None:
+                    patchers.append(patcher)
+        for patcher in patchers:
+            if patcher.model_options.get("model_function_wrapper") is wrapper:
+                if original is None:
+                    patcher.model_options.pop("model_function_wrapper", None)
+                else:
+                    patcher.set_model_unet_function_wrapper(original)
+    saved_unet_wrappers.clear()
+
+    if saved_load_networks is not None:
+        import networks
+        if networks.load_networks is installed_load_networks:
+            networks.load_networks = saved_load_networks
+        saved_load_networks = installed_load_networks = None
+
+    if orig_Linear_forward is not None:
+        torch.nn.Linear.forward = orig_Linear_forward
+        orig_Linear_forward = None
+
+    was_active = region_lora_active
+    region_lora_active = False
+    if not was_active:
+        return
 
     import lora
     if forge:
         try:
-            regioner.restore()
+            regioner.restore(saved_lora_model)
         except Exception as e:
             print("Regional Prompter: could not put the LoRA strengths back:", e)
         if saved_online_lora is not None:
@@ -1026,9 +1135,7 @@ def unloadlorafowards(self):
                         emb_db.register_embedding_by_name(None, shared.sd_model, emb_name)
 
     lora.loaded_loras.clear()
-    if orig_Linear_forward != None :
-        torch.nn.Linear.forward = orig_Linear_forward
-        orig_Linear_forward = None
+    saved_lora_model = None
 
 def refresh(self, lora_patches, offload_device=torch.device('cpu')):
     from backend.patcher import lora
@@ -1124,71 +1231,4 @@ def refresh(self, lora_patches, offload_device=torch.device('cpu')):
 
     lora.set_parameter_devices(self.model, parameter_devices=parameter_devices)
     self.loaded_hash = hashes
-    return
-
-
-def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=None):
-    from modules import sd_models
-    import networks as nets
-    from backend.args import dynamic_args
-    from modules import sd_models, errors
-
-    global lora_state_dict_cache
-
-    current_sd = sd_models.model_data.get_sd_model()
-    if current_sd is None:
-        return
-
-    nets.loaded_networks.clear()
-
-    unavailable_networks = []
-    for name in names:
-        if name.lower() in nets.forbidden_network_aliases and nets.available_networks.get(name) is None:
-            unavailable_networks.append(name)
-        elif nets.available_network_aliases.get(name) is None:
-            unavailable_networks.append(name)
-
-    if unavailable_networks:
-        nets.update_available_networks_by_names(unavailable_networks)
-
-    networks_on_disk = [nets.available_networks.get(name, None) if name.lower() in nets.forbidden_network_aliases else nets.available_network_aliases.get(name, None) for name in names]
-    if any(x is None for x in networks_on_disk):
-        nets.list_available_networks()
-        networks_on_disk = [nets.available_networks.get(name, None) if name.lower() in nets.forbidden_network_aliases else nets.available_network_aliases.get(name, None) for name in names]
-
-    for i, (network_on_disk, name) in enumerate(zip(networks_on_disk, names)):
-        try:
-            net = nets.load_network(name, network_on_disk)
-        except Exception as e:
-            errors.display(e, f"loading network {network_on_disk.filename}")
-            continue
-        net.mentioned_name = name
-        network_on_disk.read_hash()
-        nets.loaded_networks.append(net)
-
-    online_mode = dynamic_args.get('online_lora', False)
-
-    if not current_sd.forge_objects.unet.model.storage_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-        online_mode = False
-
-    compiled_lora_targets = []
-    for a, b, c in zip(networks_on_disk, unet_multipliers, te_multipliers):
-        compiled_lora_targets.append([a.filename, b, c, online_mode])
-
-    compiled_lora_targets_hash = str(compiled_lora_targets)
-
-    if current_sd.current_lora_hash == compiled_lora_targets_hash:
-        return
-
-    current_sd.current_lora_hash = compiled_lora_targets_hash
-    current_sd.forge_objects.unet = current_sd.forge_objects_original.unet
-    current_sd.forge_objects.clip = current_sd.forge_objects_original.clip
-
-    for filename, strength_model, strength_clip, online_mode in compiled_lora_targets:
-        lora_sd = nets.load_lora_state_dict(filename)
-        current_sd.forge_objects.unet, current_sd.forge_objects.clip = nets.load_lora_for_models(
-            current_sd.forge_objects.unet, current_sd.forge_objects.clip, lora_sd, strength_model, strength_clip,
-            filename=filename, online_mode=online_mode)
-
-    current_sd.forge_objects_after_applying_lora = current_sd.forge_objects.shallow_copy()
     return
