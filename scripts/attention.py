@@ -132,8 +132,9 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 DIT_ATTENTION_MODELS = ("Krea2", "ZImage", "Anima", "MOSSImage")
 
 # Which axis of the conditioning the prompt's tokens run along, so the regions
-# can be joined into one context. Anima carries a singleton axis in front of it.
-DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 2, "MOSSImage": 1}
+# can be joined into one context. Current Forge Neo passes 3D [B, T, D] for Anima
+# (older builds carried a singleton axis in front, handled via ndim fallback).
+DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 1, "MOSSImage": 1}
 
 PAD = -1  # a token no region owns, which everything may see
 DIT_MAX_PAD = 256  # the most padding either model rounds a sequence up by
@@ -228,14 +229,25 @@ def set_current_region(region):
 
 def text_owners(self, length):
     """The same for the text half. Anything past the joined context is padding
-    the model added itself."""
+    the model added itself, or appended NegPiP tokens."""
     if neo_owner is None:
         return None
     owner = neo_owner
-    if length < owner.shape[0]:
+    if length < len(owner):
         return None
-    if length > owner.shape[0]:
-        owner = torch.cat([owner, torch.full((length - owner.shape[0],), PAD, dtype=owner.dtype)])
+    if length > len(owner):
+        extra = length - len(owner)
+        tail = torch.full((extra,), PAD, dtype=owner.dtype, device=owner.device)
+        owner = torch.cat([owner, tail])
+    if negpip_owner:
+        np_own = torch.tensor(negpip_owner, dtype=owner.dtype, device=owner.device)
+        n = len(np_own)
+        owner = owner.clone()
+        edges = (neo_owner[1:] != neo_owner[:-1]).nonzero().flatten() + 1
+        ends = [int(e) for e in edges] + [len(neo_owner)]
+        for idx, end in enumerate(ends):
+            if end >= n:
+                owner[end - n:end] = np_own if idx == 0 else -2
     return owner
 
 
