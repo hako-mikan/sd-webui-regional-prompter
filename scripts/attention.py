@@ -132,8 +132,9 @@ def main_forward(module,x,context,mask,divide,isvanilla = False,userpp = False,t
 DIT_ATTENTION_MODELS = ("Krea2", "ZImage", "Anima", "MOSSImage")
 
 # Which axis of the conditioning the prompt's tokens run along, so the regions
-# can be joined into one context. Anima carries a singleton axis in front of it.
-DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 2, "MOSSImage": 1}
+# can be joined into one context. Current Forge Neo passes 3D [B, T, D] for Anima
+# (older builds carried a singleton axis in front, handled via ndim fallback).
+DIT_TEXT_AXIS = {"Krea2": 1, "ZImage": 1, "Anima": 1, "MOSSImage": 1}
 
 PAD = -1  # a token no region owns, which everything may see
 DIT_MAX_PAD = 256  # the most padding either model rounds a sequence up by
@@ -212,16 +213,41 @@ def dit_owners(self, tokens):
     return owner
 
 
+negpip_owner = None
+current_region = None
+
+
+def set_negpip_owners(owners):
+    global negpip_owner
+    negpip_owner = owners
+
+
+def set_current_region(region):
+    global current_region
+    current_region = region
+
+
 def text_owners(self, length):
     """The same for the text half. Anything past the joined context is padding
-    the model added itself."""
+    the model added itself, or appended NegPiP tokens."""
     if neo_owner is None:
         return None
     owner = neo_owner
-    if length < owner.shape[0]:
+    if length < len(owner):
         return None
-    if length > owner.shape[0]:
-        owner = torch.cat([owner, torch.full((length - owner.shape[0],), PAD, dtype=owner.dtype)])
+    if length > len(owner):
+        extra = length - len(owner)
+        tail = torch.full((extra,), PAD, dtype=owner.dtype, device=owner.device)
+        owner = torch.cat([owner, tail])
+    if negpip_owner:
+        np_own = torch.tensor(negpip_owner, dtype=owner.dtype, device=owner.device)
+        n = len(np_own)
+        owner = owner.clone()
+        edges = (neo_owner[1:] != neo_owner[:-1]).nonzero().flatten() + 1
+        ends = [int(e) for e in edges] + [len(neo_owner)]
+        for idx, end in enumerate(ends):
+            if end >= n:
+                owner[end - n:end] = np_own if idx == 0 else -2
     return owner
 
 
@@ -298,16 +324,20 @@ def anima_masking(self):
     return total <= 0 or self.step < total * ANIMA_END
 
 
-def anima_biases(self, tokens, dtype, device):
+def anima_biases(self, tokens, txtlen, dtype, device):
     """The cross and self attention biases for this token grid. A region's own
     prompt is all its tokens can see; a base region covers the whole canvas, so
     its prompt stays visible everywhere, which is what a base region is for."""
-    owner = neo_owner
+    masking = anima_masking(self)
+    if not masking and not negpip_owner:
+        return None
+
+    owner = text_owners(self, txtlen)
     if owner is None:
         return None
 
     cache = getattr(self, "dit_animacache", None)
-    if cache is not None and cache[0] == (tokens, dtype, owner.shape[0]):
+    if cache is not None and cache[0] == (tokens, txtlen, dtype, owner.shape[0], masking):
         return cache[1]
 
     masks = dit_masks(self, tokens)
@@ -317,23 +347,40 @@ def anima_biases(self, tokens, dtype, device):
     owner = owner.to(device)
     covers = [m.reshape(-1).to(device) > 0 for m in masks]
 
-    cross = torch.zeros((tokens, owner.shape[0]), dtype=torch.bool, device=device)
-    for i, rows in enumerate(covers):
-        cross |= rows[:, None] & (owner == i)[None, :]
-    # a row of nothing but -inf comes back as NaN, so anything no region covers
-    # is left with the first prompt
-    stray = ~cross.any(dim=-1)
-    if stray.any():
-        cross[stray] = (owner == 0)[None, :]
+    if masking:
+        cross = torch.zeros((tokens, owner.shape[0]), dtype=torch.bool, device=device)
+        for i, rows in enumerate(covers):
+            cross |= rows[:, None] & (owner == i)[None, :]
+        # a row of nothing but -inf comes back as NaN, so anything no region covers
+        # is left with the first prompt
+        stray = ~cross.any(dim=-1)
+        if stray.any():
+            cross[stray] = (owner == 0)[None, :]
 
-    within = torch.zeros((tokens, tokens), dtype=torch.bool, device=device)
-    for rows in covers:
-        within |= rows[:, None] & rows[None, :]
-    within.fill_diagonal_(True)
+        within = torch.zeros((tokens, tokens), dtype=torch.bool, device=device)
+        for rows in covers:
+            within |= rows[:, None] & rows[None, :]
+        within.fill_diagonal_(True)
 
-    biases = (torch.where(cross, 0.0, float("-inf")).to(dtype)[None, None],
-              torch.where(within, 0.0, ANIMA_SELF_PENALTY).to(dtype)[None, None])
-    self.dit_animacache = ((tokens, dtype, owner.shape[0]), biases)
+        biases = (torch.where(cross, 0.0, float("-inf")).to(dtype)[None, None],
+                  torch.where(within, 0.0, ANIMA_SELF_PENALTY).to(dtype)[None, None])
+    else:
+        cross = torch.ones((tokens, owner.shape[0]), dtype=torch.bool, device=device)
+        is_neg_pos = torch.zeros(owner.shape[0], dtype=torch.bool, device=device)
+        if negpip_owner:
+            n = len(negpip_owner)
+            edges = (neo_owner[1:] != neo_owner[:-1]).nonzero().flatten() + 1
+            ends = [int(e) for e in edges] + [len(neo_owner)]
+            for end in ends:
+                if end >= n:
+                    is_neg_pos[end - n:end] = True
+        cross[:, is_neg_pos] = False
+        for i, rows in enumerate(covers):
+            neg_part = (owner == i) & is_neg_pos
+            cross |= rows[:, None] & neg_part[None, :]
+        biases = (torch.where(cross, 0.0, float("-inf")).to(dtype)[None, None], None)
+
+    self.dit_animacache = ((tokens, txtlen, dtype, owner.shape[0], masking), biases)
     return biases
 
 
@@ -345,15 +392,19 @@ def hook_anima_attention(self, module):
     is_self = module.is_SelfAttn
 
     def torch_attention_op(q, k, v, transformer_options=None):
-        biases = anima_biases(self, q.shape[1], q.dtype, q.device) if anima_masking(self) else None
+        txtlen = k.shape[-3] if not is_self else (neo_owner.shape[0] if neo_owner is not None else 0)
+        biases = anima_biases(self, q.shape[1], txtlen, q.dtype, q.device)
         if biases is None:
+            return original(q, k, v, transformer_options=transformer_options)
+        mask = biases[1] if is_self else biases[0]
+        if mask is None:
             return original(q, k, v, transformer_options=transformer_options)
 
         from backend.attention import attention_pytorch
         heads = q.shape[-2]
         flat = lambda t: rearrange(t, "b ... h d -> b h ... d").view(t.shape[0], heads, -1, t.shape[-1])
         return attention_pytorch(flat(q), flat(k), flat(v), heads,
-                                 mask=biases[1] if is_self else biases[0], skip_reshape=True)
+                                 mask=mask, skip_reshape=True)
 
     torch_attention_op.rp_hooked = True
     return torch_attention_op
