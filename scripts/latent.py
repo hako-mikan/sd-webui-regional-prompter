@@ -275,10 +275,14 @@ def hook_neo_cond_batch(self):
             return original(model, cond, uncond, x_in, timestep, model_options)
 
         out_cond = torch.zeros_like(x_in)
-        for i, one in enumerate(cond):
-            regioner.set_region(i)
-            region_out, _ = original(model, [one], None, x_in, timestep, model_options)
-            out_cond += region_out * filters[i].to(device=region_out.device, dtype=region_out.dtype)
+        try:
+            for i, one in enumerate(cond):
+                regioner.set_region(i)
+                att.set_current_region(i)
+                region_out, _ = original(model, [one], None, x_in, timestep, model_options)
+                out_cond += region_out * filters[i].to(device=region_out.device, dtype=region_out.dtype)
+        finally:
+            att.set_current_region(None)
 
         if uncond is None:
             return out_cond, torch.zeros_like(x_in)

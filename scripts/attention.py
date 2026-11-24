@@ -212,6 +212,20 @@ def dit_owners(self, tokens):
     return owner
 
 
+negpip_owner = None
+current_region = None
+
+
+def set_negpip_owners(owners):
+    global negpip_owner
+    negpip_owner = owners
+
+
+def set_current_region(region):
+    global current_region
+    current_region = region
+
+
 def text_owners(self, length):
     """The same for the text half. Anything past the joined context is padding
     the model added itself."""

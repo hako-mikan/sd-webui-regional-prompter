@@ -720,6 +720,12 @@ class Script(modules.scripts.Script):
         else:
             return self.hiresacts[0]
 
+    def set_negpip_owners(self, owners):
+        att.set_negpip_owners(owners)
+
+    def get_latenti(self):
+        return att.current_region
+
 def unloader(self,p):
     if self.hooked:
         #print("unloaded")
