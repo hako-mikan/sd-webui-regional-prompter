@@ -168,14 +168,28 @@ def neo_attention_batch(self, original, model, cond, uncond, x_in, timestep, mod
                 return None, None
             raw.append(held.cond)
 
-        shape = lambda c: c.shape[:axis] + c.shape[axis + 1:]
+        actual_axis = axis
+        if getattr(self, "dit_kind", None) == "Anima" and raw[0].ndim == 4:
+            actual_axis = 2
+
+        shape = lambda c: c.shape[:actual_axis] + c.shape[actual_axis + 1:]
         if len({shape(c) for c in raw}) > 1:
             return None, None
 
-        owner = torch.cat([torch.full((c.shape[axis],), i, dtype=torch.long) for i, c in enumerate(raw)])
+        owner = torch.cat([torch.full((c.shape[actual_axis],), i, dtype=torch.long) for i, c in enumerate(raw)])
         entry = dict(conds[0])
         model_conds = dict(entry["model_conds"])
-        model_conds["c_crossattn"] = model_conds["c_crossattn"]._copy_with(torch.cat(raw, dim=axis))
+        model_conds["c_crossattn"] = model_conds["c_crossattn"]._copy_with(torch.cat(raw, dim=actual_axis))
+
+        if "c_negpip_mask" in model_conds:
+            neg_raw = [one.get("model_conds", {}).get("c_negpip_mask") for one in conds]
+            if all(n is not None for n in neg_raw):
+                neg_conds = [n.cond for n in neg_raw]
+                neg_axis = actual_axis if neg_conds[0].ndim == raw[0].ndim else 1
+                model_conds["c_negpip_mask"] = model_conds["c_negpip_mask"]._copy_with(
+                    torch.cat(neg_conds, dim=neg_axis)
+                )
+
         entry["model_conds"] = model_conds
         return entry, owner
 
